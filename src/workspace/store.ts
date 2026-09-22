@@ -1,4 +1,5 @@
 import * as fs from "node:fs/promises";
+import { extractSamples } from "../problems/statement";
 import {
   readContestRoster,
   writeContestRoster,
@@ -112,10 +113,16 @@ export class WorkspaceStore {
       throw new Error("绑定来源不匹配。");
     await safePath(this.root, parsed.data.sourceFile);
     const binding = parsed.data;
+    const previous = structuredClone(binding);
     const observed = this.observed.get(id);
     const metadataChanged =
       observed?.revision === binding.revision &&
       observed.hash !== hash(rawJSON);
+    const externalChanged = binding.fileHashes
+      ? await readExternalCaseEdits(this.root, binding)
+      : false;
+    const repairedSamples = this.restoreOutputOnlySamples(binding);
+    if (repairedSamples) binding.revision++;
     if (!binding.fileHashes) {
       // Back up the original format before the first file-model transaction.
       const backup = await safePath(
@@ -130,17 +137,10 @@ export class WorkspaceStore {
           await fs.writeFile(backup, rawJSON, { flag: "wx", mode: 0o600 });
         } else if ((e as NodeJS.ErrnoException).code !== "EEXIST") throw e;
       }
-      await commitCaseFiles(
-        this.root,
-        binding,
-        structuredClone(binding),
-        rawJSON,
-      );
+      await commitCaseFiles(this.root, binding, previous, rawJSON);
     } else {
-      const previous = structuredClone(binding);
-      const externalChanged = await readExternalCaseEdits(this.root, binding);
       if (metadataChanged) binding.revision++;
-      if (externalChanged || metadataChanged) {
+      if (externalChanged || metadataChanged || repairedSamples) {
         // External files already contain the new data. Commit their versions without
         // rewriting them, so queued Webview saves must resolve the revision conflict.
         if ((await fs.readFile(file, "utf8")) !== rawJSON)
@@ -149,6 +149,40 @@ export class WorkspaceStore {
       }
     }
     return binding;
+  }
+  private restoreOutputOnlySamples(binding: Binding): boolean {
+    if (binding.problem.samples.length) return false;
+    const parsed = extractSamples(
+      binding.problem.statement.format,
+      binding.problem.statement.content,
+    );
+    if (
+      !parsed.samples.length ||
+      parsed.warnings.length ||
+      parsed.samples.some((sample) => sample.input !== "")
+    )
+      return false;
+    binding.problem.samples = parsed.samples;
+    binding.problem.warnings = binding.problem.warnings.filter(
+      (warning) =>
+        warning !== "公开样例未能完整配对，请检查题面并手动补充用例。",
+    );
+    for (const sample of parsed.samples) {
+      if (
+        binding.tombstones.includes(sample.key) ||
+        binding.cases.some((c) => c.upstreamSampleKey === sample.key)
+      )
+        continue;
+      binding.cases.push({
+        ...newCase(`样例 ${sample.key.replace("sample-", "")}`),
+        source: "sample",
+        input: "",
+        expected: sample.expected,
+        upstreamSampleKey: sample.key,
+        baseline: { input: "", expected: sample.expected },
+      });
+    }
+    return true;
   }
   contestRoster(id: string) {
     return this.serialize(() => readContestRoster(this.root, id));
@@ -193,7 +227,7 @@ export class WorkspaceStore {
         await fs.writeFile(
           file,
           sourceFile.endsWith(".c")
-            ? "#include <stdio.h>\n\nint main(void) {\n    return 0;\n}\n"
+            ? "#include <stdio.h>\n\nint main() {\n    return 0;\n}\n"
             : "#include <iostream>\n\nint main() {\n    return 0;\n}\n",
           { flag: "wx" },
         );

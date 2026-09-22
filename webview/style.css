@@ -165,6 +165,22 @@ h1 {
   line-height: 1.4;
   overflow-wrap: anywhere;
 }
+.problem-picker {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  width: 100%;
+  margin-top: 10px;
+  padding: 5px 8px;
+  color: var(--vscode-dropdown-foreground, inherit);
+  background: var(--vscode-dropdown-background, transparent);
+  border: 1px solid var(--vscode-dropdown-border, var(--border));
+  text-align: left;
+}
+.problem-picker svg {
+  flex-shrink: 0;
+}
 .file-binding {
   display: flex;
   align-items: center;

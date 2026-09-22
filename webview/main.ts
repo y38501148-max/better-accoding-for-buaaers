@@ -1,4 +1,5 @@
 import { icon, type IconName } from "./icons";
+import { problemLabel } from "../src/problems/order";
 import renderMathInElement from "katex/contrib/auto-render";
 import type { Binding, TestCase } from "../src/model";
 import type { JudgeResult } from "../src/judge/judge";
@@ -31,7 +32,11 @@ let resolveSave:
   rejectSave: ((e: Error) => void) | undefined;
 let saveRequestId: string | undefined;
 let deleted: TestCase[] = [];
-let uncertainSubmissions: { createdAt: string; language?: string }[] = [];
+let uncertainSubmissions: {
+  createdAt: string;
+  language?: string;
+  target?: Submission["target"];
+}[] = [];
 let submissionStatus = "";
 let conflict: Binding | undefined;
 let sourceStale = false,
@@ -50,7 +55,7 @@ app.innerHTML = `
   <div class="brand" title="Better Accoding For BUAAers">${icon("code")}</div>
   <div class="rail-group">
     ${navButton("play", "judge", "评测", "保存并运行启用的用例")}
-    ${navButton("send", "submit", "交题", "向当前来源提交关联源码")}
+    ${navButton("send", "submit", "交题", "提交关联源码；比赛结束后自动改用题库")}
     ${navButton("debug", "debugTestCase", "调试", "使用选定用例开始调试")}
   </div>
   <div class="rail-divider"></div>
@@ -65,6 +70,7 @@ app.innerHTML = `
 <main>
   <header class="problem-header">
     <div class="breadcrumb"><span>Accoding</span><span class="breadcrumb-divider">/</span><span id="context">工作台</span><button class="header-link" data-action="openOnWebsite" title="在 Accoding 打开" aria-label="在原站打开">↗</button></div>
+    <button id="problem-picker" class="problem-picker" data-action="selectContestProblem" title="按题序选择题目" aria-label="选择题目"><span id="problem-picker-label">选择题目</span>${icon("chevron")}</button>
     <h1 id="title">开始一道新题</h1>
     <div class="file-binding">${icon("file")}<span id="source">关联源码将在右侧打开</span><span class="binding-dot"></span><span>原生编辑器</span></div>
     <div class="tabs" role="tablist" aria-label="题目工作台">
@@ -391,10 +397,16 @@ function render() {
   submitButton.disabled = !!binding.unavailable;
   submitButton.title = binding.unavailable
     ? "此题已移除；同步确认恢复后才可交题"
-    : "向当前来源提交关联源码";
-  document.querySelector("#title")!.textContent = binding.problem.title;
+    : "提交关联源码；比赛结束后自动改用题库";
+  const label = problemLabel(binding.problem);
+  document.querySelector("#problem-picker-label")!.textContent =
+    `${label} · 切换题目`;
+  document.querySelector("#title")!.textContent =
+    binding.problem.target.kind === "contest"
+      ? `${label}. ${binding.problem.title}`
+      : binding.problem.title;
   document.querySelector("#context")!.textContent =
-    `${binding.problem.target.kind === "contest" ? `比赛 ${binding.problem.target.contestId} · ${binding.problem.label}` : "题库"} / #${binding.problem.target.problemId}`;
+    `${binding.problem.target.kind === "contest" ? `比赛 ${binding.problem.target.contestId} · ${label}` : "题库"} / #${binding.problem.target.problemId}`;
   document.querySelector("#source")!.textContent = binding.sourceFile;
   document.querySelector("#case-count")!.textContent = String(
     binding.cases.length,
@@ -487,7 +499,7 @@ function render() {
       content.append(
         el(
           "p",
-          `提交状态待确认${attempt.createdAt ? " · " + new Date(attempt.createdAt).toLocaleString() : ""}${attempt.language ? " · " + attempt.language : ""}。尚未取得提交 ID，请刷新本人记录核对；不会自动重发。`,
+          `提交状态待确认${attempt.target?.kind === "problemset" ? " · 题库（不计比赛成绩）" : ""}${attempt.createdAt ? " · " + new Date(attempt.createdAt).toLocaleString() : ""}${attempt.language ? " · " + attempt.language : ""}。尚未取得提交 ID，请刷新本人记录核对；不会自动重发。`,
         ),
       );
     if (!submissions.length && !uncertainSubmissions.length)
@@ -497,7 +509,7 @@ function render() {
       row.append(
         el(
           "summary",
-          `#${s.id} · OJ：${s.result}${s.score !== undefined ? ` · 得分 ${s.score}` : ""}`,
+          `#${s.id} · ${s.target.kind === "contest" ? `比赛 #${s.target.contestId}` : "题库（不计比赛成绩）"} · OJ：${s.result}${s.score !== undefined ? ` · 得分 ${s.score}` : ""}`,
         ),
         el("pre", s.detail ?? ""),
       );
@@ -626,6 +638,8 @@ function renderTests() {
       const area = el("textarea");
       area.spellcheck = false;
       area.value = c[key];
+      if (key === "input")
+        area.placeholder = "留空表示无输入，运行时直接结束输入（EOF）";
       area.setAttribute(
         "aria-label",
         `${c.name} ${key === "input" ? "输入" : "预期输出"}`,

@@ -232,3 +232,20 @@ it("merges a concurrent history refresh with the accepted POST without losing th
     submission: { id: "99", result: "AC" },
   });
 });
+
+it("guards an uncertain contest attempt atomically before falling back to the problemset", async () => {
+  const store = new SubmissionStore(directory);
+  const first = await store.begin("5", snapshot);
+  const fallback = {
+    ...snapshot,
+    target: { kind: "problemset" as const, problemId: "11" },
+  };
+  await expect(
+    new SubmissionStore(directory).begin("5", fallback, [], [target]),
+  ).rejects.toThrow("不会自动重发");
+  const next = await store.begin("5", fallback, [first.attemptId], [target]);
+  expect(next.target).toEqual(fallback.target);
+  expect(
+    (await store.list("5")).filter(isUncertain).map((a) => a.attemptId),
+  ).toEqual([next.attemptId]);
+});

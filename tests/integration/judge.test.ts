@@ -126,3 +126,31 @@ it("reports nonzero exits and missing executable", async () => {
     }),
   ).rejects.toThrow("无法启动");
 });
+
+it(
+  "judges an output-only program with empty stdin and a checked expected output",
+  { timeout: 40000 },
+  async () => {
+    const source = path.join(dir, "output-only.c");
+    await fs.writeFile(
+      source,
+      '#include <stdio.h>\nint main(void){if(getchar()!=EOF)return 1;puts("hello");return 0;}',
+    );
+    const result = await judge(
+      source,
+      dir,
+      [
+        {
+          ...newCase(),
+          input: "",
+          expected: "hello\n",
+          hasExpectedOutput: true,
+        },
+      ],
+      tc,
+    );
+    expect(result.compilation.exitCode, result.compilation.stderr).toBe(0);
+    expect(result.cases[0].status).toBe("PASS");
+    expect(result.cases[0].stdout.replace(/\r\n/g, "\n")).toBe("hello\n");
+  },
+);

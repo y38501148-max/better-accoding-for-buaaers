@@ -2,7 +2,7 @@
   "name": "better-accoding-for-buaaers",
   "displayName": "Better Accoding For BUAAers",
   "description": "面向北航 Accoding 的非官方 VS Code 助手：左题右码、可编辑用例与本地评测。",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "publisher": "muzermat",
   "private": true,
   "license": "MIT",
@@ -203,6 +203,11 @@
       {
         "command": "betterAccoding.clearPrivateData",
         "title": "清理个人提交缓存",
+        "category": "Accoding"
+      },
+      {
+        "command": "betterAccoding.selectContestProblem",
+        "title": "选择当前比赛题目",
         "category": "Accoding"
       }
     ],

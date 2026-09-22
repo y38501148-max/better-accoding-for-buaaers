@@ -292,3 +292,36 @@ it("reclaims a lock left by a process that has actually exited", async () => {
   expect(loaded.cases[0].input).toBe(b.cases[0].input);
   await expect(fs.stat(lock)).rejects.toMatchObject({ code: "ENOENT" });
 });
+
+it("repairs cached output-only samples once while retaining code, edits and deletion intent", async () => {
+  const outputOnly = {
+    ...structuredClone(problem),
+    samples: [],
+    statement: {
+      ...problem.statement,
+      content: "## 输入样例\n本题没有输入。\n## 输出样例\n```\nhello\n```",
+    },
+    warnings: ["公开样例未能完整配对，请检查题面并手动补充用例。"],
+  };
+  const initial = await store.import(outputOnly);
+  await fs.writeFile(path.join(root, initial.sourceFile), "USER CODE");
+  let repaired = await new WorkspaceStore(root).read(initial.bindingId);
+  expect(repaired.cases).toHaveLength(1);
+  expect(repaired.cases[0].input).toBe("");
+  expect(repaired.cases[0].expected).toBe("hello\n");
+  expect(repaired.cases[0].hasExpectedOutput).toBe(true);
+  expect(
+    await fs.readFile(path.join(root, repaired.cases[0].inputFile!), "utf8"),
+  ).toBe("");
+  expect(repaired.problem.warnings).toEqual([]);
+  expect(await fs.readFile(path.join(root, repaired.sourceFile), "utf8")).toBe(
+    "USER CODE",
+  );
+  expect(
+    (await new WorkspaceStore(root).read(initial.bindingId)).revision,
+  ).toBe(repaired.revision);
+  repaired = await store.saveCases(repaired.bindingId, repaired.revision, []);
+  expect(
+    (await new WorkspaceStore(root).read(repaired.bindingId)).cases,
+  ).toEqual([]);
+});

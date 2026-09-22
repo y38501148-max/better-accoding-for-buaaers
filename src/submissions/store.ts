@@ -172,21 +172,23 @@ export class SubmissionStore {
     account: string,
     snapshot: { target: Target; language: string; sourceHash: string },
     acknowledged: string[] = [],
+    relatedTargets: Target[] = [],
   ): Promise<SubmissionAttempt> {
     return this.locked(async () => {
       const attempts = await this.read(account);
       const key = bindingId(snapshot.target);
+      const guarded = new Set([key, ...relatedTargets.map(bindingId)]);
       if (
         attempts.some(
           (a) =>
-            a.bindingId === key &&
+            guarded.has(a.bindingId) &&
             isUncertain(a) &&
             !acknowledged.includes(a.attemptId),
         )
       )
         throw Error("存在尚未确认的提交，请先刷新记录核对。不会自动重发。");
       for (const a of attempts)
-        if (a.bindingId === key && acknowledged.includes(a.attemptId))
+        if (guarded.has(a.bindingId) && acknowledged.includes(a.attemptId))
           a.retryAcknowledged = true;
       const time = new Date().toISOString();
       const attempt: SubmissionAttempt = {

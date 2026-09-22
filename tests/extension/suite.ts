@@ -121,8 +121,34 @@ export async function run() {
     "Native case editor: persistent .in file, unsaved edit flushed before Judge, latest input reached stdin.",
   );
 
+  if (process.env.ACCODING_PREVIEW_CONTEST) {
+    let first: Session | undefined;
+    for (const order of [9, 2, 8, 0, 6, 1, 5, 3, 7, 4]) {
+      const binding = await store.import({
+        ...structuredClone(problem),
+        target: {
+          kind: "contest",
+          contestId: "7",
+          problemId: String(900 - order),
+          contestOrder: order,
+        },
+        label: "旧缓存标签",
+        title: `合成题目 ${String.fromCharCode(65 + order)}`,
+      });
+      if (order === 0) first = { root, binding };
+    }
+    await api.open(first!);
+    console.log(
+      "Synthetic contest A–J ready for native selection verification.",
+    );
+  }
   if (process.env.ACCODING_PREVIEW_HOLD)
-    await new Promise((resolve) => setTimeout(resolve, 45000));
+    await new Promise((resolve) =>
+      setTimeout(
+        resolve,
+        process.env.ACCODING_PREVIEW_CONTEST ? 180000 : 45000,
+      ),
+    );
   console.log(
     "Extension Host: activation, commands, disk import, two-column layout, flush ACK and unrelated editor preservation passed.",
   );

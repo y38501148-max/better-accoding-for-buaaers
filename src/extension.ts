@@ -1,4 +1,5 @@
 import * as vscode from "vscode";
+import { problemLabel, compareBindings } from "./problems/order";
 import { cacheProblemImages } from "./problems/images";
 import { imageLoader } from "./problems/image-fetch";
 import {
@@ -7,6 +8,7 @@ import {
   isPending,
   type SubmissionAttempt,
 } from "./submissions/store";
+import { sendSubmission } from "./submissions/send";
 import { monitorSubmissions } from "./submissions/monitor";
 import { fetchContestSnapshotForImport } from "./accoding/import";
 import { syncContest } from "./workspace/contest";
@@ -58,6 +60,7 @@ const commandNames = [
   "openProblem",
   "restoreLayout",
   "selectProblem",
+  "selectContestProblem",
   "bindFile",
   "addTestCase",
   "importTestCases",
@@ -181,7 +184,7 @@ export async function activate(context: vscode.ExtensionContext) {
               : "题库";
           if (!map.has(key)) map.set(key, []);
           map.get(key)!.push({
-            label: `${b.problem.label} ${b.problem.title}${b.unavailable ? " [已移除]" : ""}`,
+            label: `${problemLabel(b.problem)} · ${b.problem.title}${b.unavailable ? " [已移除]" : ""}`,
             session: { root: f.uri.fsPath, binding: b },
           });
         }
@@ -190,13 +193,9 @@ export async function activate(context: vscode.ExtensionContext) {
           label: f.name,
           children: [...map].map(([label, children]) => ({
             label,
-            children: children.sort((a, b) => {
-              const left = a.session!.binding.problem.target;
-              const right = b.session!.binding.problem.target;
-              return left.kind === "contest" && right.kind === "contest"
-                ? left.contestOrder - right.contestOrder
-                : 0;
-            }),
+            children: children.sort((a, b) =>
+              compareBindings(a.session!.binding, b.session!.binding),
+            ),
           })),
         });
       }
@@ -393,7 +392,7 @@ export async function activate(context: vscode.ExtensionContext) {
         : await vscode.window
             .showQuickPick(
               problems.map((problem) => ({
-                label: `${problem.label} ${problem.title}`,
+                label: `${problemLabel(problem)} · ${problem.title}`,
                 picked: true,
                 problem,
               })),
@@ -413,19 +412,36 @@ export async function activate(context: vscode.ExtensionContext) {
     treeChange.fire();
     if (first) await show({ root, binding: first });
   }
-  async function selectProblem() {
+  async function selectProblem(currentContest = false) {
+    const target = active?.binding.problem.target;
+    const contestId =
+      currentContest && target?.kind === "contest"
+        ? target.contestId
+        : undefined;
     const all: { label: string; description: string; session: Session }[] = [];
     for (const f of vscode.workspace.workspaceFolders ?? []) {
       if (f.uri.scheme !== "file") continue;
-      for (const b of await store(f.uri.fsPath).list())
+      if (contestId && f.uri.fsPath !== active!.root) continue;
+      for (const b of (await store(f.uri.fsPath).list()).sort(
+        compareBindings,
+      )) {
+        if (
+          contestId &&
+          (b.problem.target.kind !== "contest" ||
+            b.problem.target.contestId !== contestId)
+        )
+          continue;
         all.push({
-          label: `${b.problem.label} ${b.problem.title}${b.unavailable ? " [已移除]" : ""}`,
+          label: `${problemLabel(b.problem)} · ${b.problem.title}${b.unavailable ? " [已移除]" : ""}`,
           description: `${f.name} · ${b.bindingId}`,
           session: { root: f.uri.fsPath, binding: b },
         });
+      }
     }
     const choice = await vscode.window.showQuickPick(all, {
-      placeHolder: "选择题目（每种提交来源独立保存）",
+      placeHolder: contestId
+        ? `比赛 #${contestId} · 按题序选择题目`
+        : "选择题目（每种提交来源独立保存）",
     });
     if (choice) await show(choice.session);
   }
@@ -596,11 +612,13 @@ export async function activate(context: vscode.ExtensionContext) {
     if (!(await vscode.debug.startDebugging(folder, config)))
       throw new Error("调试器未能启动，请查看调试控制台。");
   }
-  async function chooseLanguage(s: Session) {
-    const choice = await vscode.window.showQuickPick(
-      s.binding.problem.languages,
-      { placeHolder: "选择 OJ 实际支持的提交语言（本地编译标准单独设置）" },
-    );
+  async function chooseLanguage(
+    s: Session,
+    languages = s.binding.problem.languages,
+  ) {
+    const choice = await vscode.window.showQuickPick(languages, {
+      placeHolder: "选择 OJ 实际支持的提交语言（本地编译标准单独设置）",
+    });
     if (!choice) return false;
     s.binding = await store(s.root).update(
       s.binding.bindingId,
@@ -628,6 +646,16 @@ export async function activate(context: vscode.ExtensionContext) {
       sessionKey(active) === sessionKey(s)
     );
   }
+  async function submissionAttempts(s: Session, account: string) {
+    const target = s.binding.problem.target;
+    return (await submissionStore.list(account)).filter(
+      (a) =>
+        a.bindingId === s.binding.bindingId ||
+        (target.kind === "contest" &&
+          a.target.kind === "problemset" &&
+          a.target.problemId === target.problemId),
+    );
+  }
   async function postSubmissions(
     s: Session,
     account: string,
@@ -637,10 +665,7 @@ export async function activate(context: vscode.ExtensionContext) {
   ) {
     const connection = client;
     const generation = submissionCacheGeneration;
-    const attempts = await submissionStore.list(
-      account,
-      s.binding.problem.target,
-    );
+    const attempts = await submissionAttempts(s, account);
     if (
       !valid() ||
       generation !== submissionCacheGeneration ||
@@ -656,19 +681,20 @@ export async function activate(context: vscode.ExtensionContext) {
         .reverse(),
       uncertain: attempts
         .filter(isUncertain)
-        .map((a) => ({ createdAt: a.createdAt, language: a.language })),
+        .map((a) => ({
+          createdAt: a.createdAt,
+          language: a.language,
+          target: a.target,
+        })),
       focus,
       status,
     });
   }
-  async function restoreSubmissions(s: Session) {
+  async function restoreSubmissions(s: Session, publish = true) {
     const account = user?.id;
     if (!account) return;
-    await postSubmissions(s, account);
-    const attempts = await submissionStore.list(
-      account,
-      s.binding.problem.target,
-    );
+    if (publish) await postSubmissions(s, account);
+    const attempts = await submissionAttempts(s, account);
     const pending = attempts.flatMap((a) =>
       a.submission && isPending(a.submission) ? [a.submission] : [],
     );
@@ -690,9 +716,9 @@ export async function activate(context: vscode.ExtensionContext) {
         throw Error("此题已从比赛移除，仍可本地练习；请同步确认恢复后再交题。");
       const identity = await ensureUser();
       account = identity.id;
-      const unresolved = (
-        await submissionStore.list(account, s.binding.problem.target)
-      ).filter(isUncertain);
+      const unresolved = (await submissionAttempts(s, account)).filter(
+        isUncertain,
+      );
       const acknowledged: string[] = [];
       if (unresolved.length) {
         await postSubmissions(s, account, true);
@@ -704,43 +730,49 @@ export async function activate(context: vscode.ExtensionContext) {
         if (choice !== "已核对，仍要再次提交") return;
         acknowledged.push(...unresolved.map((a) => a.attemptId));
       }
-      if (!s.binding.selectedSubmissionLanguage && !(await chooseLanguage(s)))
-        return;
       const source = await saveSource(s);
       const code = await fs.readFile(source, "utf8");
-      const target = s.binding.problem.target;
-      const markSending = async () => {
-        attempt = await submissionStore.begin(
-          account!,
-          {
-            target,
-            language: s!.binding.selectedSubmissionLanguage!,
-            sourceHash: hash(code),
-          },
-          acknowledged,
-        );
-        sent = true;
-      };
-      const submission =
-        target.kind === "contest"
-          ? await new ContestAdapter(client).submit(
+      const connection = client;
+      const original = s.binding.problem.target;
+      const submission = await sendSubmission(connection, original, code, {
+        language: async (problem, fallback) => {
+          if (fallback && sameSubmissionContext(s!, account!, connection))
+            workbench.post({
+              type: "notice",
+              text: `比赛已结束，将使用题库 #${problem.target.problemId} 提交，不计比赛成绩。`,
+            });
+          if (
+            !problem.languages.includes(
+              s!.binding.selectedSubmissionLanguage ?? "",
+            ) &&
+            !(await chooseLanguage(s!, problem.languages))
+          )
+            return undefined;
+          return s!.binding.selectedSubmissionLanguage;
+        },
+        sending: async (target, language) => {
+          if (!sameSubmissionContext(s!, account!, connection))
+            throw Error("账号或当前题目已切换，请重新点击交题。");
+          attempt = await submissionStore.begin(
+            account!,
+            {
               target,
-              code,
-              s.binding.selectedSubmissionLanguage!,
-              markSending,
-            )
-          : await new ProblemsetAdapter(client).submit(
-              target,
-              code,
-              s.binding.selectedSubmissionLanguage!,
-              markSending,
-            );
+              language,
+              sourceHash: hash(code),
+            },
+            acknowledged,
+            [original, { kind: "problemset", problemId: original.problemId }],
+          );
+          sent = true;
+        },
+      });
+      if (!submission) return;
       await submissionStore.observe(account, submission, attempt!.attemptId);
       await postSubmissions(s, account, true);
       if (sameSubmissionContext(s, account)) {
         workbench.post({
           type: "notice",
-          text: `已提交 #${submission.id}，OJ：${submission.result}`,
+          text: `${submission.target.kind === "problemset" && original.kind === "contest" ? "已通过题库提交（不计比赛成绩）" : "已提交"} #${submission.id}，OJ：${submission.result}`,
         });
         void restoreSubmissions(s).catch(error);
       }
@@ -818,19 +850,47 @@ export async function activate(context: vscode.ExtensionContext) {
       sameSubmissionContext(s, identity.id, connection) &&
       generation === submissionCacheGeneration;
     const t = s.binding.problem.target;
-    const entries =
+    const attempts = await submissionAttempts(s, identity.id);
+    const queries = [
       t.kind === "contest"
-        ? await new ContestAdapter(connection).list(t)
-        : await new ProblemsetAdapter(connection).list(t, identity.id);
+        ? new ContestAdapter(connection).list(t)
+        : new ProblemsetAdapter(connection).list(t, identity.id),
+    ];
+    if (
+      t.kind === "contest" &&
+      attempts.some((a) => a.target.kind === "problemset")
+    )
+      queries.push(
+        new ProblemsetAdapter(connection).list(
+          { kind: "problemset", problemId: t.problemId },
+          identity.id,
+        ),
+      );
+    const results = await Promise.allSettled(queries);
     if (!valid()) return;
-    const own = entries.filter(
-      (e) => !e.creatorId || e.creatorId === identity.id,
+    const failures: string[] = [];
+    for (const result of results) {
+      if (result.status === "rejected") {
+        failures.push(
+          result.reason instanceof Error
+            ? result.reason.message
+            : "记录查询失败",
+        );
+        continue;
+      }
+      for (const entry of result.value.filter(
+        (e) => !e.creatorId || e.creatorId === identity.id,
+      ))
+        await submissionStore.observe(identity.id, entry, undefined, valid);
+    }
+    if (!valid()) return;
+    await postSubmissions(
+      s,
+      identity.id,
+      true,
+      failures.length ? `部分记录未刷新：${failures.join("；")}` : undefined,
     );
-    for (const entry of own)
-      await submissionStore.observe(identity.id, entry, undefined, valid);
-    if (!valid()) return;
-    await postSubmissions(s, identity.id, true);
-    await restoreSubmissions(s);
+    await restoreSubmissions(s, false);
   }
   async function sync(all = false) {
     trusted();
@@ -997,6 +1057,8 @@ export async function activate(context: vscode.ExtensionContext) {
         return importItems();
       case "openProblem":
         return arg ? show(arg) : selectProblem();
+      case "selectContestProblem":
+        return selectProblem(true);
       case "selectProblem":
       case "selectSubmissionTarget":
         return selectProblem();

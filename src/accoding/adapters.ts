@@ -1,4 +1,5 @@
 import * as cheerio from "cheerio";
+import { contestLabel } from "../problems/order";
 import { z } from "zod";
 import { AccodingClient, ApiError } from "./client";
 import {
@@ -68,6 +69,21 @@ const settingsSchema = z.object({
   special_judge: z.unknown().optional(),
   special_compared: z.unknown().optional(),
 });
+export function contestHasEnded(snapshot: ContestSnapshot, now = Date.now()) {
+  const end = snapshot.endTime;
+  // Require an explicit timezone; ambiguous or missing metadata is not an end signal.
+  return (
+    !!end &&
+    /(?:Z|[+-]\d{2}:?\d{2})$/i.test(end) &&
+    Number.isFinite(Date.parse(end)) &&
+    now >= Date.parse(end)
+  );
+}
+export class ContestEndedError extends Error {
+  constructor() {
+    super("比赛刚刚结束，请再次点击交题以使用题库提交。");
+  }
+}
 export class ContestAdapter {
   constructor(private client: AccodingClient) {}
   async fetch(id: string, options?: ReadOptions): Promise<Problem[]> {
@@ -102,7 +118,7 @@ export class ContestAdapter {
           contestOrder: index,
         },
         title: p.title,
-        label: String.fromCharCode(65 + index),
+        label: contestLabel(index),
         statement: {
           format: "markdown",
           content: p.description,
@@ -134,12 +150,18 @@ export class ContestAdapter {
     code: string,
     lang: string,
     onSending?: () => Promise<void>,
+    onEnded?: () => Promise<Submission>,
   ): Promise<Submission> {
-    const problem = (await this.fetch(target.contestId)).find(
+    const snapshot = await this.snapshot(target.contestId);
+    const problem = snapshot.problems.find(
       (p) => p.target.problemId === target.problemId,
     );
     if (!problem || problem.target.kind !== "contest")
       throw new ApiError("forbidden", "当前比赛已不包含此题，请同步后确认。");
+    if (contestHasEnded(snapshot)) {
+      if (onEnded) return onEnded();
+      throw new ContestEndedError();
+    }
     if (!problem.languages.includes(lang))
       throw new ApiError("protocol", "提交语言已失效，请重新选择。");
     await onSending?.();

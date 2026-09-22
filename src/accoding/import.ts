@@ -3,7 +3,7 @@ import { ContestAdapter, currentUser } from "./adapters";
 import { AccodingClient, ApiError } from "./client";
 
 /** Recheck the exact contest on import/sync without a role toggle or permission
- * cache. Submissions continue using the student client and original IDs. */
+ * cache. Submissions use the student client and validated source-specific routes. */
 export async function fetchContestSnapshotForImport(
   student: AccodingClient,
   id: string,
