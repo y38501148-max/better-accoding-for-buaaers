@@ -679,13 +679,11 @@ export async function activate(context: vscode.ExtensionContext) {
       submissions: attempts
         .flatMap((a) => (a.submission ? [a.submission] : []))
         .reverse(),
-      uncertain: attempts
-        .filter(isUncertain)
-        .map((a) => ({
-          createdAt: a.createdAt,
-          language: a.language,
-          target: a.target,
-        })),
+      uncertain: attempts.filter(isUncertain).map((a) => ({
+        createdAt: a.createdAt,
+        language: a.language,
+        target: a.target,
+      })),
       focus,
       status,
     });
