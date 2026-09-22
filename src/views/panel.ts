@@ -19,10 +19,11 @@ export class Workbench {
     private onClose: () => void,
   ) {}
   async open(source: vscode.Uri, restore = false) {
-    if (!this.panel || restore) {
+    const applyLayout = !this.panel || restore;
+    if (applyLayout) {
       await vscode.commands.executeCommand("vscode.setEditorLayout", {
         orientation: 0,
-        groups: [{ size: 0.45 }, { size: 0.55 }],
+        groups: [{}, {}],
       });
       this.codeColumn = vscode.ViewColumn.Two;
     }
@@ -63,6 +64,22 @@ export class Workbench {
       preserveFocus: false,
     });
     this.codeColumn = editor.viewColumn;
+    if (applyLayout) {
+      const layout = await vscode.commands.executeCommand<{
+        groups: { size?: number }[];
+      }>("vscode.getEditorLayout");
+      const width =
+        layout?.groups.reduce((sum, group) => sum + (group.size ?? 0), 0) ?? 0;
+      if (width > 0) {
+        // Apply pixel sizes after revealing both groups so VS Code does not expand
+        // an undersized group on focus. Respect the editor's minimum width.
+        const left = Math.min(width / 2, Math.max(220, width * 0.3));
+        await vscode.commands.executeCommand("vscode.setEditorLayout", {
+          orientation: 0,
+          groups: [{ size: left }, { size: width - left }],
+        });
+      }
+    }
   }
   restore(panel: vscode.WebviewPanel) {
     this.panel = panel;

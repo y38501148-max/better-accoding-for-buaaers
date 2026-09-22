@@ -1,10 +1,10 @@
 # 本地编译与调试环境
 
-开发候选 0.1.0。已验证 macOS arm64 上 Clang 的 C/C++ 编译和本地评测；其他系统与所有 Debug 配置仍需实机验收。
+开发候选 0.1.0。已验证 macOS arm64 上 Clang 的 C/C++ 编译和本地评测；Windows/Linux 的 CI 编译和 Judge 已通过；交互调试仍需验收。
 
 ## macOS
 
-安装 Apple Command Line Tools，终端检查 `clang --version`、`clang++ --version`。设置 `betterAccoding.compiler.c` 为 `clang`，`compiler.cpp` 为 `clang++`。Debug 使用可选扩展 CodeLLDB（vadimcn.vscode-lldb），生成配置采用 `stdio: [输入文件, null, null]`；首次 Debug 不会修改 launch.json。
+安装 Apple Command Line Tools，终端检查 `clang --version`、`clang++ --version`。设置 `betterAccoding.compiler.c` 为 `clang`，`compiler.cpp` 为 `clang++`。Debug 使用可选扩展 CodeLLDB（vadimcn.vscode-lldb），已实测中文/空格工作区路径、所选用例 stdin、源码断点、变量检查和继续输出。首次 Debug 不会修改 launch.json。
 
 ## Windows x64
 
@@ -16,6 +16,6 @@
 
 ## 配置与限制
 
-命令面板运行“Accoding: 检查编译环境”会实际编译并运行最小 C/C++ 程序。默认本地 C99/C++17 与 OJ 的语言菜单分别管理，不代表 OJ 使用同一标准。
+命令面板运行“Accoding: 检查编译环境”会实际编译并运行最小 C/C++ 程序。编译在独立构建目录进行，自定义编译参数中涉及路径时请使用绝对路径；源码的相对头文件搜索仍以源码目录为基准。默认本地 C99/C++17 与 OJ 的语言菜单分别管理，不代表 OJ 使用同一标准。
 
 本地运行受 Workspace Trust 限制。用户程序拥有当前系统用户权限；本工具不是安全沙箱，不模拟 OJ 的内存或 CPU 环境。Remote SSH、WSL、容器和虚拟工作区不在 0.1.0 的验收范围。

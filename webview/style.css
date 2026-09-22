@@ -647,3 +647,113 @@ summary {
     border-color: CanvasText;
   }
 }
+@media (max-width: 330px) {
+  #app {
+    grid-template-columns: 40px minmax(0, 1fr);
+  }
+  .rail {
+    padding-inline: 2px;
+  }
+  .problem-header {
+    padding-inline: 10px;
+  }
+  #content {
+    padding-inline: 10px;
+    scrollbar-gutter: auto;
+  }
+  .tabs {
+    gap: 9px;
+  }
+  .tabs button {
+    font-size: 11px;
+    gap: 3px;
+  }
+  .tab-count {
+    padding-inline: 4px;
+  }
+  .breadcrumb {
+    font-size: 10px;
+    gap: 4px;
+  }
+  .breadcrumb > span:first-child,
+  .breadcrumb-divider {
+    display: none;
+  }
+  .limits {
+    gap: 8px;
+    flex-wrap: wrap;
+  }
+  .test-toolbar {
+    gap: 2px;
+    flex-wrap: wrap;
+  }
+  .test-toolbar button {
+    font-size: 11px;
+    padding-inline: 5px;
+  }
+  .test-toolbar svg {
+    width: 13px;
+    height: 13px;
+  }
+  .case {
+    padding-inline: 8px;
+  }
+  .case-head {
+    gap: 4px;
+  }
+  .case-actions {
+    margin-inline: -8px;
+    padding-inline: 3px;
+    gap: 0;
+  }
+  .case-actions button {
+    padding-inline: 4px;
+    font-size: 10px;
+  }
+  .case-actions svg {
+    width: 13px;
+    height: 13px;
+  }
+  .case-actions .icon-button,
+  .case-actions summary {
+    width: 23px;
+  }
+  .case-options {
+    flex-wrap: wrap;
+    gap: 7px;
+  }
+  .case-options select {
+    max-width: 100%;
+  }
+  .footer-main {
+    flex-wrap: wrap;
+    gap: 2px;
+  }
+}
+@media (max-width: 330px) {
+  .case-actions .icon-text-button span {
+    display: none;
+  }
+  .case-actions .icon-text-button {
+    width: 24px;
+  }
+  .menu-popover {
+    min-width: 0;
+    width: 160px;
+  }
+  .menu-popover button {
+    font-size: 11px;
+    padding-inline: 4px;
+  }
+}
+@media (max-width: 260px) {
+  .test-toolbar .primary-button span {
+    display: none;
+  }
+  .test-toolbar .primary-button {
+    width: 28px;
+  }
+  .test-toolbar {
+    flex-wrap: nowrap;
+  }
+}

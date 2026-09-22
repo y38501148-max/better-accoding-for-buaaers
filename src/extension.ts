@@ -173,6 +173,7 @@ export async function activate(context: vscode.ExtensionContext) {
             session: { root: f.uri.fsPath, binding: b },
           });
         }
+        if (!map.size) continue;
         groups.push({
           label: f.name,
           children: [...map].map(([label, children]) => ({ label, children })),
@@ -244,8 +245,14 @@ export async function activate(context: vscode.ExtensionContext) {
       const source = await safePath(s.root, binding.sourceFile);
       await workbench.open(vscode.Uri.file(source), restore);
       active = { root: s.root, binding };
+      await vscode.commands.executeCommand(
+        "setContext",
+        "betterAccoding.hasActiveProblem",
+        true,
+      );
       polling?.abort();
       workbench.show(binding, s.root);
+      treeChange.fire();
       await context.workspaceState.update("lastBinding", {
         root: s.root,
         bindingId: binding.bindingId,
@@ -492,6 +499,10 @@ export async function activate(context: vscode.ExtensionContext) {
             program: built.program,
             cwd: path.dirname(source),
             stdio: [input, null, null],
+            // This macOS backend needs explicit stdin redirection at process launch.
+            processCreateCommands: [
+              `process launch -i ${JSON.stringify(input)}`,
+            ],
             terminal: "console",
             stopOnEntry: false,
           }
@@ -1206,6 +1217,12 @@ export async function activate(context: vscode.ExtensionContext) {
       },
     }),
   );
-  return { store, commands: commandNames, open: show, getActive: () => active };
+  return {
+    store,
+    commands: commandNames,
+    open: show,
+    getActive: () => active,
+    debugTestCase: debug,
+  };
 }
 export function deactivate() {}

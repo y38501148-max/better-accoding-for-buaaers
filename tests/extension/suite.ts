@@ -17,6 +17,9 @@ export async function run() {
   const commands = await vscode.commands.getCommands();
   for (const c of api.commands)
     assert(commands.includes("betterAccoding." + c), c);
+  await vscode.commands.executeCommand(
+    "workbench.view.extension.betterAccoding",
+  );
   const root = vscode.workspace.workspaceFolders![0].uri.fsPath;
   const store = api.store(root);
   const binding = await store.import(problem);
@@ -55,6 +58,19 @@ export async function run() {
   await vscode.commands.executeCommand("betterAccoding.restoreLayout");
   assert(vscode.window.tabGroups.all.length >= 2);
   assert.equal((await store.read(binding.bindingId)).cases[0].input, "1 2\n");
+  const layout = await vscode.commands.executeCommand<{
+    groups: { size: number }[];
+  }>("vscode.getEditorLayout");
+  assert(layout && layout.groups.length === 2);
+  const ratio =
+    layout.groups[0].size / (layout.groups[0].size + layout.groups[1].size);
+  assert(
+    Math.abs(ratio - 0.3) < 0.02,
+    `Workbench ratio should be 30%, received ${ratio}`,
+  );
+  console.log("Editor layout ratio:", ratio);
+  if (process.env.ACCODING_PREVIEW_HOLD)
+    await new Promise((resolve) => setTimeout(resolve, 45000));
   console.log(
     "Extension Host: activation, commands, disk import, two-column layout, flush ACK and unrelated editor preservation passed.",
   );

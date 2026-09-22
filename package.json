@@ -51,7 +51,8 @@
     "release:checksum": "node scripts/checksum.mjs",
     "package": "node scripts/package.mjs",
     "format:check": "prettier --check src webview tests scripts",
-    "test:package": "node scripts/test-package.mjs"
+    "test:package": "node scripts/test-package.mjs",
+    "test:debug": "node scripts/test-debug.mjs"
   },
   "contributes": {
     "commands": [
@@ -68,12 +69,14 @@
       {
         "command": "betterAccoding.importProblem",
         "title": "按题号导入",
-        "category": "Accoding"
+        "category": "Accoding",
+        "icon": "$(add)"
       },
       {
         "command": "betterAccoding.importContest",
         "title": "按比赛导入",
-        "category": "Accoding"
+        "category": "Accoding",
+        "icon": "$(list-selection)"
       },
       {
         "command": "betterAccoding.importFromUrl",
@@ -98,7 +101,8 @@
       {
         "command": "betterAccoding.restoreLayout",
         "title": "恢复左题右码布局",
-        "category": "Accoding"
+        "category": "Accoding",
+        "icon": "$(split-editor)"
       },
       {
         "command": "betterAccoding.selectProblem",
@@ -291,9 +295,20 @@
           "command": "betterAccoding.importContest",
           "when": "view == betterAccoding.problems",
           "group": "navigation"
+        },
+        {
+          "command": "betterAccoding.restoreLayout",
+          "when": "view == betterAccoding.problems && betterAccoding.hasActiveProblem",
+          "group": "navigation@3"
         }
       ]
-    }
+    },
+    "viewsWelcome": [
+      {
+        "view": "betterAccoding.problems",
+        "contents": "在 Accoding 做题，代码留在原生编辑器。\n[导入题目](command:betterAccoding.importProblem)\n[导入比赛](command:betterAccoding.importContest)\n[粘贴题目链接](command:betterAccoding.importFromUrl)"
+      }
+    ]
   },
   "dependencies": {
     "cheerio": "1.0.0",
