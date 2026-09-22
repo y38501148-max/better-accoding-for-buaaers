@@ -1,3 +1,4 @@
+import { icon, type IconName } from "./icons";
 import renderMathInElement from "katex/contrib/auto-render";
 import type { Binding, TestCase } from "../src/model";
 import type { JudgeResult } from "../src/judge/judge";
@@ -32,7 +33,47 @@ let saveRequestId: string | undefined;
 let deleted: TestCase[] = [];
 let debounce: ReturnType<typeof setTimeout> | undefined;
 const app = document.querySelector<HTMLDivElement>("#app")!;
-app.innerHTML = `<nav aria-label="做题操作栏"><div class="brand">AC<span>BUAAers</span></div><button data-action="judge" title="保存并评测全部启用用例">▶<span>评测</span></button><button data-action="submit" title="向当前题目来源提交关联源码">↑<span>交题</span></button><button data-action="debugTestCase" title="调试选中用例">◉<span>调试</span></button><button data-action="importMenu">＋<span>爬题</span></button><button data-action="selectProblem">☷<span>题单</span></button><button data-action="syncProblem">↻<span>同步</span></button><button data-action="cancelRun" title="停止本地运行和远程查询；无法撤回已发送提交">■<span>停止</span></button><button data-action="settings">⚙<span>设置</span></button></nav><main><header><div class="eyebrow">BETTER ACCODING · 非官方</div><h1 id="title">准备开始练习</h1><div id="context">按题号或比赛导入，代码将在右侧原生编辑器中打开。</div><div class="tabs"><button data-tab="statement">题面</button><button data-tab="tests">测试用例</button><button data-tab="submissions">提交记录</button></div></header><section id="content"></section><footer><span id="save" role="status">尚未选择题目</span><button data-action="selectSubmissionLanguage" id="language">选择提交语言</button><div id="summary">本地样例与 OJ 结果分别显示</div></footer></main>`;
+const navButton = (
+  name: IconName,
+  command: string,
+  label: string,
+  title: string,
+) =>
+  `<button data-action="${command}" title="${title}" aria-label="${label}" class="rail-button ${command === "judge" ? "rail-primary" : ""}">${icon(name)}<span>${label}</span></button>`;
+app.innerHTML = `
+<nav class="rail" aria-label="做题操作栏">
+  <div class="brand" title="Better Accoding For BUAAers">${icon("code")}</div>
+  <div class="rail-group">
+    ${navButton("play", "judge", "评测", "保存并运行启用的用例")}
+    ${navButton("send", "submit", "交题", "向当前来源提交关联源码")}
+    ${navButton("debug", "debugTestCase", "调试", "使用选定用例开始调试")}
+  </div>
+  <div class="rail-divider"></div>
+  <div class="rail-group">
+    ${navButton("plus", "importMenu", "导入", "按题号、比赛或链接导入")}
+    ${navButton("list", "selectProblem", "题单", "切换题目")}
+    ${navButton("refresh", "syncProblem", "同步", "更新题面，保留本地修改")}
+    ${navButton("stop", "cancelRun", "停止", "停止运行与查询；不会撤回已发送的提交")}
+  </div>
+  <div class="rail-bottom">${navButton("settings", "settings", "设置", "设置与账号")}</div>
+</nav>
+<main>
+  <header class="problem-header">
+    <div class="breadcrumb"><span>Accoding</span><span class="breadcrumb-divider">/</span><span id="context">工作台</span><button class="header-link" data-action="openOnWebsite" title="在 Accoding 打开" aria-label="在原站打开">↗</button></div>
+    <h1 id="title">开始一道新题</h1>
+    <div class="file-binding">${icon("file")}<span id="source">关联源码将在右侧打开</span><span class="binding-dot"></span><span>原生编辑器</span></div>
+    <div class="tabs" role="tablist" aria-label="题目工作台">
+      <button data-tab="statement" role="tab">${icon("book")}<span>题面</span></button>
+      <button data-tab="tests" role="tab">${icon("tests")}<span>测试</span><span class="tab-count" id="case-count">0</span></button>
+      <button data-tab="submissions" role="tab">${icon("history")}<span>提交记录</span></button>
+    </div>
+  </header>
+  <section id="content"></section>
+  <footer>
+    <div class="footer-main"><span id="summary">准备就绪</span><button data-action="selectSubmissionLanguage" id="language" title="选择 OJ 提交语言">选择语言 ${icon("chevron")}</button></div>
+    <div class="footer-detail"><span class="save-indicator"></span><span id="save" role="status">尚未选择题目</span><span class="local-note">本地测试 ≠ OJ 结果</span></div>
+  </footer>
+</main>`;
 const content = document.querySelector<HTMLElement>("#content")!;
 function el<K extends keyof HTMLElementTagNameMap>(tag: K, text?: string) {
   const e = document.createElement(tag);
@@ -43,6 +84,50 @@ function button(label: string, fn: () => void) {
   const b = el("button", label);
   b.addEventListener("click", fn);
   return b;
+}
+function iconButton(
+  name: IconName,
+  label: string,
+  fn: () => void,
+  only = false,
+) {
+  const b = button("", fn);
+  b.innerHTML = icon(name);
+  b.title = label;
+  b.setAttribute("aria-label", label);
+  b.className = only ? "icon-button" : "icon-text-button";
+  if (!only) b.append(el("span", label));
+  return b;
+}
+function menu(label: string, items: HTMLElement[]) {
+  const details = el("details");
+  details.className = "overflow-menu";
+  const summary = el("summary");
+  summary.innerHTML = icon("more");
+  summary.title = label;
+  summary.setAttribute("aria-label", label);
+  const popover = el("div");
+  popover.className = "menu-popover";
+  popover.append(...items);
+  details.addEventListener("keydown", (event) => {
+    if (event.key === "Escape") {
+      details.open = false;
+      summary.focus();
+    }
+  });
+  details.addEventListener("toggle", () => {
+    if (details.open)
+      for (const other of app.querySelectorAll<HTMLDetailsElement>(
+        ".overflow-menu[open]",
+      )) {
+        if (other !== details) other.open = false;
+      }
+  });
+  popover.addEventListener("click", () => {
+    details.open = false;
+  });
+  details.append(summary, popover);
+  return details;
 }
 function state() {
   if (binding)
@@ -62,6 +147,11 @@ function status() {
       : dirty
         ? "等待保存…"
         : "已保存";
+  app.dataset.saveState = saveError
+    ? "error"
+    : saving || dirty
+      ? "pending"
+      : "saved";
   state();
 }
 function edit() {
@@ -156,12 +246,34 @@ async function action(command: string, caseId?: string) {
   }
 }
 app.addEventListener("click", (e) => {
+  for (const menu of app.querySelectorAll<HTMLDetailsElement>(
+    ".overflow-menu[open]",
+  )) {
+    if (!menu.contains(e.target as Node)) menu.open = false;
+  }
   const b = (e.target as HTMLElement).closest<HTMLButtonElement>("button");
   if (b?.dataset.action) void action(b.dataset.action);
   if (b?.dataset.tab) {
     tab = b.dataset.tab;
     render();
   }
+});
+app.querySelector(".tabs")!.addEventListener("keydown", (event) => {
+  const e = event as KeyboardEvent;
+  const tabs = [...app.querySelectorAll<HTMLButtonElement>("[data-tab]")];
+  const index = tabs.indexOf(document.activeElement as HTMLButtonElement);
+  if (index < 0 || !["ArrowLeft", "ArrowRight", "Home", "End"].includes(e.key))
+    return;
+  e.preventDefault();
+  const next =
+    e.key === "Home"
+      ? 0
+      : e.key === "End"
+        ? tabs.length - 1
+        : (index + (e.key === "ArrowRight" ? 1 : -1) + tabs.length) %
+          tabs.length;
+  tabs[next].click();
+  tabs[next].focus();
 });
 function render() {
   for (const b of app.querySelectorAll<HTMLButtonElement>("nav button"))
@@ -170,28 +282,48 @@ function render() {
       !["importMenu", "selectProblem", "settings"].includes(b.dataset.action!);
   if (!binding) {
     content.replaceChildren(
-      el("p", "先从操作栏“爬题”导入题目，或从“题单”打开离线缓存。"),
+      el("p", "从操作栏“导入”添加题目，或从“题单”打开已缓存的题目。"),
     );
     return;
   }
-  document.querySelector("#title")!.textContent =
-    `${binding.problem.label} ${binding.problem.title}`;
+  document.querySelector("#title")!.textContent = binding.problem.title;
   document.querySelector("#context")!.textContent =
-    `${binding.problem.target.kind === "contest" ? `比赛 #${binding.problem.target.contestId}` : "题库"} · #${binding.problem.target.problemId} · ${binding.sourceFile}`;
-  document.querySelector("#language")!.textContent =
-    `交题语言：${binding.selectedSubmissionLanguage ?? "未选择"}`;
-  app
-    .querySelectorAll<HTMLButtonElement>("[data-tab]")
-    .forEach((b) => b.classList.toggle("selected", b.dataset.tab === tab));
+    `${binding.problem.target.kind === "contest" ? `比赛 ${binding.problem.target.contestId} · ${binding.problem.label}` : "题库"} / #${binding.problem.target.problemId}`;
+  document.querySelector("#source")!.textContent = binding.sourceFile;
+  document.querySelector("#case-count")!.textContent = String(
+    binding.cases.length,
+  );
+  const language = document.querySelector("#language")!;
+  language.replaceChildren(
+    el("span", binding.selectedSubmissionLanguage ?? "选择交题语言"),
+  );
+  const caret = el("span");
+  caret.innerHTML = icon("chevron");
+  language.append(caret);
+  app.querySelectorAll<HTMLButtonElement>("[data-tab]").forEach((b) => {
+    b.classList.toggle("selected", b.dataset.tab === tab);
+    b.setAttribute("aria-selected", String(b.dataset.tab === tab));
+    b.tabIndex = b.dataset.tab === tab ? 0 : -1;
+  });
   content.replaceChildren();
   if (tab === "statement") {
-    content.append(
-      el(
-        "div",
-        `时间限制：${binding.problem.timeLimit ?? "未提供"} · 内存限制：${binding.problem.memoryLimit ?? "未提供"}`,
-      ),
-    );
-    for (const w of binding.problem.warnings) content.append(el("p", w));
+    const limits = el("div");
+    limits.className = "limits";
+    for (const [name, text] of [
+      ["clock", binding.problem.timeLimit ?? "时间限制未提供"],
+      ["memory", binding.problem.memoryLimit ?? "内存限制未提供"],
+    ] as const) {
+      const item = el("span");
+      item.innerHTML = icon(name);
+      item.append(el("span", text));
+      limits.append(item);
+    }
+    content.append(limits);
+    for (const w of binding.problem.warnings) {
+      const note = el("p", w);
+      note.className = "notice";
+      content.append(note);
+    }
     if (binding.problem.special)
       content.append(
         el(
@@ -201,6 +333,24 @@ function render() {
       );
     const article = el("article");
     article.innerHTML = html;
+    const duplicateTitle = article.querySelector("h1");
+    if (duplicateTitle?.textContent === binding.problem.title)
+      duplicateTitle.remove();
+    for (const pre of article.querySelectorAll("pre")) {
+      const text = pre.textContent ?? "";
+      const wrap = el("div");
+      wrap.className = "sample-block";
+      pre.replaceWith(wrap);
+      wrap.append(
+        pre,
+        iconButton(
+          "copy",
+          "复制",
+          () => api.postMessage({ type: "copyDraft", text }),
+          true,
+        ),
+      );
+    }
     content.append(article);
     renderMathInElement(article, {
       delimiters: [
@@ -256,27 +406,37 @@ function createCase() {
 }
 function renderTests() {
   const tools = el("div");
-  tools.className = "tools";
+  tools.className = "test-toolbar";
+  const add = iconButton("plus", "添加用例", createCase);
+  add.classList.add("primary-button");
+  const undo = iconButton("undo", "撤销删除", () => {
+    const c = deleted.pop();
+    if (c) {
+      binding!.cases.push(c);
+      edit();
+      render();
+    }
+  });
+  undo.disabled = deleted.length === 0;
   tools.append(
-    button("＋ 添加用例", createCase),
-    button("导入 .in/.out", () => void action("importTestCases")),
-    button("恢复已删官方样例", () => void action("restoreDeletedSamples")),
-    button("运行全部", () => void action("judge")),
-    button("重跑失败", () => void action("rerunFailed")),
-    button("撤销删除", () => {
-      const c = deleted.pop();
-      if (c) {
-        binding!.cases.push(c);
-        edit();
-        render();
-      }
-    }),
-    button("复制全部草稿", () => {
-      api.postMessage({
-        type: "copyDraft",
-        text: JSON.stringify(binding?.cases, null, 2),
-      });
-    }),
+    add,
+    iconButton("import", "导入", () => void action("importTestCases")),
+    el("span"),
+    menu("更多用例操作", [
+      iconButton("refresh", "重跑失败用例", () => void action("rerunFailed")),
+      undo,
+      iconButton(
+        "undo",
+        "恢复已删官方样例",
+        () => void action("restoreDeletedSamples"),
+      ),
+      iconButton("copy", "复制全部草稿", () =>
+        api.postMessage({
+          type: "copyDraft",
+          text: JSON.stringify(binding?.cases, null, 2),
+        }),
+      ),
+    ]),
   );
   content.append(tools);
   if (!binding!.cases.length)
@@ -299,11 +459,16 @@ function renderTests() {
     enabled.checked = c.enabled;
     enabled.addEventListener("change", () => {
       c.enabled = enabled.checked;
+      card.classList.toggle("case-disabled", !c.enabled);
       edit();
     });
     const enabledLabel = el("label", "启用 ");
     enabledLabel.append(enabled);
+    const number = el("span", String(index + 1).padStart(2, "0"));
+    number.className = "case-number";
+    enabledLabel.className = "enabled-control";
     head.append(
+      number,
       name,
       enabledLabel,
       el(
@@ -315,11 +480,16 @@ function renderTests() {
             : "自定义",
       ),
     );
+    card.classList.toggle("case-disabled", !c.enabled);
     card.append(head);
     const fields = el("div");
     fields.className = "fields";
     for (const key of ["input", "expected"] as const) {
-      const label = el("label", key === "input" ? "输入" : "预期输出");
+      const label = el("label");
+      label.className = "io-field";
+      const caption = el("span", key === "input" ? "输入" : "预期输出");
+      caption.className = "field-caption";
+      label.append(caption);
       const area = el("textarea");
       area.spellcheck = false;
       area.value = c[key];
@@ -354,12 +524,14 @@ function renderTests() {
       c.hasExpectedOutput = check.checked;
       edit();
     });
-    const checkLabel = el("label", "参与校验（空内容表示期望空输出）");
+    const checkLabel = el("label", "校验输出");
+    checkLabel.className = "check-control";
+    checkLabel.title = "开启且预期内容为空时，表示期望空输出；关闭则仅运行。";
     checkLabel.prepend(check);
     const select = el("select");
     select.setAttribute("aria-label", "输出比较模式");
     for (const [v, t] of [
-      ["exact", "精确比较（统一换行）"],
+      ["exact", "精确比较"],
       ["trim-line-end", "忽略行尾空格"],
       ["tokens", "Token 比较"],
     ]) {
@@ -372,53 +544,67 @@ function renderTests() {
       c.comparison = select.value as TestCase["comparison"];
       edit();
     };
-    card.append(checkLabel, select);
+    const options = el("div");
+    options.className = "case-options";
+    options.append(checkLabel, select);
+    card.append(options);
     const actions = el("div");
-    actions.className = "tools";
-    actions.append(
-      button("运行", () => void action("runTestCase", c.id)),
-      button("调试", () => void action("debugTestCase", c.id)),
-      button("复制", () => {
-        binding!.cases.splice(index + 1, 0, {
-          ...structuredClone(c),
-          id: crypto.randomUUID(),
-          source: "custom",
-          baseline: undefined,
-          upstreamSampleKey: undefined,
-          name: `${c.name} 副本`,
-        });
-        edit();
-        render();
-      }),
-      button("删除", () => {
-        deleted.push(c);
-        binding!.cases.splice(index, 1);
-        edit();
-        render();
-      }),
-      button("上移", () => move(index, -1)),
-      button("下移", () => move(index, 1)),
-    );
+    actions.className = "case-actions";
+    const duplicate = () => {
+      binding!.cases.splice(index + 1, 0, {
+        ...structuredClone(c),
+        id: crypto.randomUUID(),
+        source: "custom",
+        baseline: undefined,
+        upstreamSampleKey: undefined,
+        name: `${c.name} 副本`,
+      });
+      edit();
+      render();
+    };
+    const remove = () => {
+      deleted.push(c);
+      binding!.cases.splice(index, 1);
+      edit();
+      render();
+    };
+    const more = [
+      iconButton("up", "上移", () => move(index, -1)),
+      iconButton("down", "下移", () => move(index, 1)),
+    ];
     if (c.baseline)
-      actions.append(
-        button("恢复官方版本", () => {
+      more.push(
+        iconButton("undo", "恢复官方版本", () => {
           c.input = c.baseline!.input;
           c.expected = c.baseline!.expected;
           edit();
           render();
         }),
       );
+    actions.append(
+      iconButton("play", "运行", () => void action("runTestCase", c.id)),
+      iconButton("debug", "调试", () => void action("debugTestCase", c.id)),
+      el("span"),
+      iconButton("copy", "复制用例", duplicate, true),
+      iconButton("trash", "删除用例", remove, true),
+      menu("更多用例操作", more),
+    );
     card.append(actions);
     const r = result?.cases.find((x) => x.id === c.id);
     if (r) {
       const stale = dirty || c.revision !== r.revision;
-      card.append(
+      const verdict = el("div");
+      verdict.className = "case-verdict";
+      verdict.dataset.status = stale ? "stale" : r.status;
+      verdict.append(
         el(
           "strong",
-          `${r.status}${stale ? " · 结果已过期" : ""} · ${r.elapsedMs} ms（本机测量）`,
+          `${r.status}${stale ? " · 已过期" : ""}   ${r.elapsedMs} ms · 本机`,
         ),
       );
+      card.append(verdict);
       const detail = el("details");
+      detail.className = "result-detail";
       detail.append(
         el("summary", "实际输出 / 差异 / stderr"),
         el("pre", r.stdout.slice(0, 32768)),
