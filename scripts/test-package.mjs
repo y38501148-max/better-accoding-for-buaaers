@@ -36,6 +36,14 @@ const installed = (await readdir(extensions)).find((d) =>
   d.startsWith("muzermat.better-accoding-for-buaaers-"),
 );
 if (!installed) throw Error("VSIX installation not found");
+const installedManifest = JSON.parse(
+  await readFile(path.join(extensions, installed, "package.json"), "utf8"),
+);
+if (installedManifest.version !== manifest.version)
+  throw Error(
+    `Expected ${manifest.version}, installed ${installedManifest.version}; Marketplace may still be updating.`,
+  );
+console.log(`Verified installed version: ${installedManifest.version}`);
 await build({
   entryPoints: ["tests/extension/suite.ts"],
   outfile: ".vscode-test/packaged-suite.cjs",
