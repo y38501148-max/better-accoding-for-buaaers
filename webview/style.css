@@ -810,3 +810,25 @@ main {
   width: 12px;
   height: 12px;
 }
+
+.oj-state,
+.oj-result {
+  padding: 8px 10px;
+  margin: 8px 0;
+  border-left: 3px solid currentColor;
+}
+.oj-pending {
+  color: var(--vscode-testing-iconFailed, #f14c4c);
+}
+.oj-accepted {
+  color: var(--vscode-testing-iconPassed, #73c991);
+}
+.oj-result summary {
+  color: inherit;
+  font-weight: 600;
+  cursor: pointer;
+}
+.oj-result pre {
+  color: var(--vscode-editor-foreground);
+  white-space: pre-wrap;
+}

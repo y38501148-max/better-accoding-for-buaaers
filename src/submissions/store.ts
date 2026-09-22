@@ -16,6 +16,7 @@ const submissionSchema = z.object({
   language: z.string().optional(),
   score: z.string().optional(),
   detail: z.string().optional(),
+  createdAt: z.string().optional(),
 });
 const attemptSchema = z.object({
   attemptId: z.string(),

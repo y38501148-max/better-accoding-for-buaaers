@@ -1,4 +1,5 @@
 import { it, expect, vi } from "vitest";
+vi.setConfig({ testTimeout: 20000 });
 import { AccodingClient } from "../../src/accoding/client";
 import { sendSubmission } from "../../src/submissions/send";
 import { contest, problemPage } from "../fixtures/synthetic";

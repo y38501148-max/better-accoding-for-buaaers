@@ -282,3 +282,29 @@ it("preserves admin provenance on restart and polls equal IDs from different rou
   );
   expect(pending.target).toEqual(adminTarget);
 });
+
+it("automatically retries a transient judge read and progresses WT to JG to AC", async () => {
+  const { ApiError } = await import("../../src/accoding/client");
+  vi.useFakeTimers();
+  const states = ["WT", "network", "JG", "AC"];
+  const observed: string[] = [];
+  const retry = vi.fn(async () => {});
+  const running = monitorSubmissions({
+    submissions: [submission],
+    signal: new AbortController().signal,
+    intervalMs: 10,
+    retry,
+    get: async (s) => {
+      const next = states.shift()!;
+      if (next === "network") throw new ApiError("network", "temporary");
+      return { ...s, result: next };
+    },
+    update: async (s) => {
+      observed.push(`${s.id}:${s.result}`);
+    },
+  });
+  await vi.advanceTimersByTimeAsync(10000);
+  expect(await running).toBe("complete");
+  expect(observed).toEqual(["99:WT", "99:JG", "99:AC"]);
+  expect(retry).toHaveBeenCalledTimes(1);
+});

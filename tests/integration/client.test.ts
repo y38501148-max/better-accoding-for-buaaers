@@ -1,4 +1,5 @@
 import { it, expect, vi } from "vitest";
+vi.setConfig({ testTimeout: 20000 });
 import { AccodingClient } from "../../src/accoding/client";
 import {
   ContestAdapter,
@@ -217,3 +218,52 @@ it("logout cancellation cannot retry against a fresh session", async () => {
   await expect(pending).rejects.toThrow("取消");
   expect(transport).toHaveBeenCalledTimes(1);
 });
+
+it.each(["Problem", "Problem_id"])(
+  "recognizes %s headers and waits for a delayed matching submission ID",
+  async (header) => {
+    let sent = false,
+      reads = 0,
+      posts = 0;
+    const code = "int main(){return 0;}\n";
+    const c = new AccodingClient(undefined, async (url, init) => {
+      const p = new URL(url).pathname;
+      if (p === "/api/users/me") return json({ id: 5 });
+      if (p === "/problem/0/index") return new Response(problemPage);
+      if (init.method === "POST") {
+        sent = true;
+        posts++;
+        return new Response(null, {
+          status: 302,
+          headers: { location: "/problem/0/submission" },
+        });
+      }
+      if (p === "/problem/0/submission") {
+        if (sent) reads++;
+        return new Response(
+          sent && reads >= 3
+            ? '<table><tr><td id="submission_id0">99</td><td><a href="/user/5/index">Mine</a><a href="/submission/99">c</a></td></tr></table>'
+            : "<html></html>",
+        );
+      }
+      if (p === "/submission/getSubmissionApi")
+        return json([
+          { id: 99, result: "WT", problem_id: 0, creator_id: 5, lang: "c" },
+        ]);
+      if (p === "/submission/99")
+        return new Response(
+          `<pre><code>/* \n Author: Synthetic\n Result: WT\tSubmission_id: 99\n ${header}: 0\n*/\n\n${code}</code></pre>`,
+        );
+      throw Error("Unexpected route");
+    });
+    const record = await new ProblemsetAdapter(c).submit(
+      { kind: "problemset", problemId: "0" },
+      code,
+      "c",
+    );
+    expect(record.id).toBe("99");
+    expect(record.result).toBe("WT");
+    expect(posts).toBe(1);
+    expect(reads).toBeGreaterThanOrEqual(3);
+  },
+);

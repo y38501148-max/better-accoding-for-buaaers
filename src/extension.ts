@@ -684,14 +684,56 @@ export async function activate(context: vscode.ExtensionContext) {
         createdAt: a.createdAt,
         language: a.language,
         target: a.target,
+        state: a.state,
       })),
       focus,
       status,
     });
   }
+  async function recoverSubmissions(s: Session, account: string) {
+    const connection = client;
+    const attempts = (await submissionAttempts(s, account)).filter(isUncertain);
+    for (const attempt of attempts.slice(-5)) {
+      if (attempt.target.kind !== "problemset" || !attempt.sourceHash) continue;
+      const overlaps = attempts.filter(
+        (other) =>
+          other.bindingId === attempt.bindingId &&
+          other.sourceHash === attempt.sourceHash &&
+          Math.abs(
+            Date.parse(other.createdAt) - Date.parse(attempt.createdAt),
+          ) <= 125000,
+      );
+      if (overlaps.length !== 1) continue;
+      try {
+        const adapter = new ProblemsetAdapter(
+          attempt.target.service === "admin"
+            ? connection.adminReader()
+            : connection,
+        );
+        const record = await adapter.recoverAttempt(
+          attempt.target,
+          account,
+          attempt,
+        );
+        if (!sameSubmissionContext(s, account, connection)) return;
+        if (record)
+          await submissionStore.observe(
+            account,
+            record,
+            attempt.attemptId,
+            () => sameSubmissionContext(s, account, connection),
+          );
+      } catch (e) {
+        output.appendLine(
+          `自动核对提交记录未完成：${e instanceof Error ? e.message : "查询失败"}`,
+        );
+      }
+    }
+  }
   async function restoreSubmissions(s: Session, publish = true) {
     const account = user?.id;
     if (!account) return;
+    if (!submitting) await recoverSubmissions(s, account);
     if (publish) await postSubmissions(s, account);
     const attempts = await submissionAttempts(s, account);
     const pending = attempts.flatMap((a) =>
@@ -713,6 +755,7 @@ export async function activate(context: vscode.ExtensionContext) {
       s = await refreshActive();
       const identity = await ensureUser();
       account = identity.id;
+      await recoverSubmissions(s, account);
       const unresolved = (await submissionAttempts(s, account)).filter(
         isUncertain,
       );
@@ -769,6 +812,7 @@ export async function activate(context: vscode.ExtensionContext) {
             ],
           );
           sent = true;
+          await postSubmissions(s!, account!, true, "提交中，正在获取提交 ID…");
         },
       });
       if (!submission) return;
@@ -821,6 +865,16 @@ export async function activate(context: vscode.ExtensionContext) {
             : new ProblemsetAdapter(
                 t.service === "admin" ? connection.adminReader() : connection,
               ).get(t, submission.id);
+        },
+        retry: async () => {
+          if (valid())
+            await postSubmissions(
+              s,
+              account,
+              false,
+              "查询暂时失败，正在自动重试…",
+              valid,
+            );
         },
         update: async (submission) => {
           if (!valid()) return;
@@ -902,13 +956,14 @@ export async function activate(context: vscode.ExtensionContext) {
         await submissionStore.observe(identity.id, entry, undefined, valid);
     }
     if (!valid()) return;
+    await restoreSubmissions(s, false);
+    if (!valid()) return;
     await postSubmissions(
       s,
       identity.id,
       true,
       failures.length ? `部分记录未刷新：${failures.join("；")}` : undefined,
     );
-    await restoreSubmissions(s, false);
   }
   async function sync(all = false) {
     trusted();

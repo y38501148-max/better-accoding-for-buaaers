@@ -1,4 +1,5 @@
 import * as cheerio from "cheerio";
+import { setTimeout as delay } from "node:timers/promises";
 import { contestLabel } from "../problems/order";
 import { z } from "zod";
 import { AccodingClient, ApiError } from "./client";
@@ -6,6 +7,7 @@ import {
   ORIGIN,
   ADMIN_ORIGIN,
   idSchema,
+  hash,
   type Problem,
   type Target,
   type ContestSnapshot,
@@ -295,6 +297,7 @@ export const submissionSchema = z.object({
   language: z.string().optional(),
   score: z.union([z.number(), z.string()]).nullable().optional(),
   detail: z.string().nullable().optional(),
+  created_at: z.string().nullable().optional(),
 });
 export interface Submission {
   id: string;
@@ -305,6 +308,7 @@ export interface Submission {
   language?: string;
   score?: string;
   detail?: string;
+  createdAt?: string;
 }
 export function parseSubmission(value: unknown, target: Target): Submission {
   const result = submissionSchema.safeParse(value);
@@ -323,6 +327,7 @@ export function parseSubmission(value: unknown, target: Target): Submission {
     language: s.lang ?? s.language,
     score: s.score?.toString(),
     detail: s.detail?.slice(0, 65536),
+    createdAt: s.created_at ?? undefined,
   };
 }
 export class ProblemsetAdapter {
@@ -356,63 +361,107 @@ export class ProblemsetAdapter {
       (await this.list(target, identity.id)).map((s) => s.id),
     );
     await onSending?.();
-    const r = await this.client.request(action, {
-      method: "POST",
-      body: new URLSearchParams({
-        ...(csrf ? { _csrf: csrf } : {}),
-        code: encodeSubmissionCode(code, shiftCode),
-        lang,
-      }).toString(),
-    });
-    // Accept a concrete ID only. A redirected list does not prove which submission was created.
-    if (r.headers.get("content-type")?.includes("application/json"))
-      return parseSubmission(JSON.parse(r.text), target);
-    const match = new URL(r.url).pathname.match(
-      /^\/submission\/(\d+)(?:\/index)?$/,
-    );
-    if (match) return this.get(target, match[1]);
-    if (new URL(r.url).pathname === `/problem/${target.problemId}/submission`) {
-      const $ = cheerio.load(r.text);
-      const candidates = new Set<string>();
-      $("a[href]").each((_i, el) => {
-        const match = ($(el).attr("href") ?? "").match(/^\/submission\/(\d+)$/);
-        if (match && !before.has(match[1])) candidates.add(match[1]);
+    let reply: Awaited<ReturnType<AccodingClient["request"]>> | undefined;
+    try {
+      reply = await this.client.request(action, {
+        method: "POST",
+        body: new URLSearchParams({
+          ...(csrf ? { _csrf: csrf } : {}),
+          code: encodeSubmissionCode(code, shiftCode),
+          lang,
+        }).toString(),
       });
-      const matches: Submission[] = [];
-      for (const id of [...candidates].slice(0, 10)) {
-        const record = await this.get(target, id);
-        if (
-          record.creatorId !== identity.id ||
-          record.language !== lang ||
-          record.problemId !== target.problemId
-        )
-          continue;
-        const detail = await this.client.request(`/submission/${id}`);
-        if (new URL(detail.url).pathname !== `/submission/${id}`) continue;
-        const $detail = cheerio.load(detail.text);
-        const presented = $detail("pre > code").text();
-        const prefix = presented.match(
-          /^\/\* \r?\n[\s\S]*?\r?\n\*\/\r?\n\r?\n/,
+    } catch (e) {
+      if (!(e instanceof ApiError) || e.kind !== "unknown") throw e;
+      // A lost POST response is recovered with reads only, never a second send.
+    }
+    if (reply?.headers.get("content-type")?.includes("application/json")) {
+      const record = parseSubmission(JSON.parse(reply.text), target);
+      if (
+        before.has(record.id) ||
+        (record.problemId && record.problemId !== target.problemId) ||
+        (record.creatorId && record.creatorId !== identity.id)
+      )
+        throw new ApiError(
+          "unknown",
+          "返回的提交记录不匹配，无法确认此次提交。",
         );
+      return record;
+    }
+    const direct =
+      reply &&
+      new URL(reply.url).pathname.match(/^\/submission\/(\d+)(?:\/index)?$/);
+    if (direct && !before.has(direct[1])) {
+      // Preserve the ID even if the judge query is not ready yet; the monitor retries.
+      return {
+        id: direct[1],
+        target,
+        result: "WT",
+        problemId: target.problemId,
+        creatorId: identity.id,
+        language: lang,
+      };
+    }
+    const replyIds: string[] = [];
+    if (reply)
+      cheerio
+        .load(reply.text)("a[href]")
+        .each((_i, el) => {
+          const id = el.attribs.href?.match(/^\/submission\/(\d+)$/)?.[1];
+          if (id && !before.has(id) && !replyIds.includes(id))
+            replyIds.push(id);
+        });
+    for (let round = 0; round < 10; round++) {
+      if (round)
+        await delay(1000, undefined, { signal: this.client.sessionSignal });
+      try {
+        const listed = await this.list(target, identity.id);
+        const extra = replyIds.filter((id) => !listed.some((s) => s.id === id));
+        const records = [
+          ...listed,
+          ...(extra.length ? await this.query(target, extra.slice(0, 20)) : []),
+        ];
+        const candidates = records.filter(
+          (record) =>
+            !before.has(record.id) &&
+            record.creatorId === identity.id &&
+            record.language === lang &&
+            record.problemId === target.problemId,
+        );
+        const matches: Submission[] = [];
+        for (const record of candidates.slice(0, 20)) {
+          const detail = await this.client.request(`/submission/${record.id}`);
+          if (new URL(detail.url).pathname !== `/submission/${record.id}`)
+            continue;
+          const source = submissionSource(
+            detail.text,
+            record.id,
+            target.problemId,
+          );
+          if (
+            source !== undefined &&
+            source.replace(/\r\n/g, "\n") === code.replace(/\r\n/g, "\n")
+          )
+            matches.push(record);
+        }
+        if (matches.length === 1) return matches[0];
+        if (matches.length > 1) break; // Never guess among concurrent identical submissions.
+      } catch (e) {
         if (
-          !prefix ||
-          !prefix[0].includes(`Submission_id: ${id}`) ||
-          !prefix[0].includes(`Problem_id: ${target.problemId}`)
+          this.client.sessionSignal.aborted ||
+          !(e instanceof ApiError) ||
+          ["auth", "forbidden"].includes(e.kind)
         )
-          continue;
-        if (
-          presented.slice(prefix[0].length).replace(/\r\n/g, "\n") ===
-          code.replace(/\r\n/g, "\n")
-        )
-          matches.push(record);
+          throw e;
+        // Lists and code pages can lag behind the accepted POST. Retry discovery only.
       }
-      if (matches.length === 1) return matches[0];
     }
     throw new ApiError(
       "unknown",
-      "服务器已响应，但未返回明确提交 ID。请刷新本人记录确认，禁止自动重发。",
+      "暂未找到唯一匹配的提交 ID。已自动查询记录，未重复发送；可刷新记录继续核对。",
     );
   }
+
   async list(
     target: Extract<Target, { kind: "problemset" }>,
     userId: string,
@@ -436,6 +485,41 @@ export class ProblemsetAdapter {
     });
     if (!ids.length) return [];
     return this.query(target, ids);
+  }
+  async recoverAttempt(
+    target: Extract<Target, { kind: "problemset" }>,
+    userId: string,
+    attempt: { createdAt: string; sourceHash?: string; language?: string },
+  ) {
+    const sentAt = Date.parse(attempt.createdAt);
+    if (!attempt.sourceHash || !Number.isFinite(sentAt)) return undefined;
+    const records = await this.list(target, userId);
+    const matches: Submission[] = [];
+    for (const record of records) {
+      const createdAt = Date.parse(record.createdAt ?? "");
+      if (
+        record.creatorId !== userId ||
+        record.language !== attempt.language ||
+        record.problemId !== target.problemId ||
+        !Number.isFinite(createdAt) ||
+        createdAt < sentAt - 5000 ||
+        createdAt > sentAt + 120000
+      )
+        continue;
+      const detail = await this.client.request(`/submission/${record.id}`);
+      if (new URL(detail.url).pathname !== `/submission/${record.id}`) continue;
+      const source = submissionSource(detail.text, record.id, target.problemId);
+      if (
+        source !== undefined &&
+        [
+          source,
+          source.replace(/\r\n/g, "\n"),
+          source.replace(/\r?\n/g, "\r\n"),
+        ].some((s) => hash(s) === attempt.sourceHash)
+      )
+        matches.push(record);
+    }
+    return matches.length === 1 ? matches[0] : undefined;
   }
   private async query(target: Target, ids: string[]) {
     const q = new URLSearchParams({ submission_id: JSON.stringify(ids) });
@@ -472,4 +556,19 @@ export function encodeSubmissionCode(code: string, enabled: boolean) {
         : c,
     )
     .join("");
+}
+
+/** Extract only the source after the site's own verified submission header. */
+export function submissionSource(
+  html: string,
+  id: string,
+  problemId: string,
+): string | undefined {
+  const presented = cheerio.load(html)("pre > code").text();
+  const prefix = presented.match(/^\/\*[\s\S]*?\*\/\r?\n\r?\n/);
+  if (!prefix) return undefined;
+  const submission = prefix[0].match(/\bSubmission_id:\s*(\d+)\b/);
+  const problem = prefix[0].match(/\bProblem(?:_id)?:\s*(\d+)\b/);
+  if (submission?.[1] !== id || problem?.[1] !== problemId) return undefined;
+  return presented.slice(prefix[0].length);
 }
