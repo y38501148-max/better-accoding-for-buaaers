@@ -38,6 +38,7 @@ const bindingSchema = z.object({
   revision: z.number().int().nonnegative(),
   cases: z.array(caseSchema),
   tombstones: z.array(z.string()),
+  deletedCases: z.array(caseSchema).optional(),
 });
 export class ConflictError extends Error {}
 export async function atomicWrite(
@@ -203,14 +204,22 @@ export class WorkspaceStore {
       throw new Error("用例 ID 重复。");
     return this.update(id, baseRevision, (b) => {
       const old = new Map(b.cases.map((c) => [c.id, c]));
-      for (const previous of b.cases)
-        if (
-          previous.upstreamSampleKey &&
-          !validated.some((c) => c.id === previous.id)
-        )
-          b.tombstones.push(previous.upstreamSampleKey);
+      b.deletedCases ??= [];
+      for (const previous of b.cases) {
+        if (!validated.some((c) => c.id === previous.id)) {
+          b.deletedCases = b.deletedCases.filter((c) => c.id !== previous.id);
+          b.deletedCases.push(previous);
+          if (previous.upstreamSampleKey)
+            b.tombstones.push(previous.upstreamSampleKey);
+        }
+      }
       b.cases = validated.map((next) => {
-        const previous = old.get(next.id);
+        const previous =
+          old.get(next.id) ?? b.deletedCases?.find((c) => c.id === next.id);
+        if (previous?.upstreamSampleKey)
+          b.tombstones = b.tombstones.filter(
+            (key) => key !== previous.upstreamSampleKey,
+          );
         const baseline = previous?.baseline;
         const changed =
           !previous ||
@@ -231,6 +240,9 @@ export class WorkspaceStore {
             : false,
         };
       });
+      b.deletedCases = b.deletedCases
+        .filter((c) => !b.cases.some((current) => current.id === c.id))
+        .slice(-100);
     });
   }
   async sync(binding: Binding, problem: Problem) {

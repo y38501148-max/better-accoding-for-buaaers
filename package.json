@@ -50,7 +50,8 @@
     "check:package": "node scripts/check-package.mjs",
     "release:checksum": "node scripts/checksum.mjs",
     "package": "node scripts/package.mjs",
-    "format:check": "prettier --check src webview tests scripts"
+    "format:check": "prettier --check src webview tests scripts",
+    "test:package": "node scripts/test-package.mjs"
   },
   "contributes": {
     "commands": [
@@ -308,7 +309,7 @@
     "@types/node": "22.20.4",
     "@types/sanitize-html": "2.16.1",
     "@types/vscode": "1.96.0",
-    "@vscode/test-electron": "2.5.2",
+    "@vscode/test-electron": "3.1.0",
     "@vscode/vsce": "3.6.2",
     "esbuild": "0.28.2",
     "eslint": "9.39.5",

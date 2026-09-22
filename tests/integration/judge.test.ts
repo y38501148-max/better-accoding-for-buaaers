@@ -28,7 +28,7 @@ it("compiles immutable C snapshot and closes stdin for EOF", async () => {
   );
   const c = { ...newCase(), input: "1 2 3", expected: "6\n" };
   const r = await judge(source, dir, [c], tc);
-  expect(r.compilation.exitCode).toBe(0);
+  expect(r.compilation.exitCode, r.compilation.stderr).toBe(0);
   expect(r.cases[0].status).toBe("PASS");
 });
 it("compiles C++ and distinguishes unchecked from expected empty", async () => {
@@ -43,6 +43,7 @@ it("compiles C++ and distinguishes unchecked from expected empty", async () => {
     [{ ...newCase(), hasExpectedOutput: false }, newCase()],
     tc,
   );
+  expect(r.compilation.exitCode, r.compilation.stderr).toBe(0);
   expect(r.cases.map((x) => x.status)).toEqual(["UNCHECKED", "FAIL"]);
 });
 it("returns compile errors without running", async () => {

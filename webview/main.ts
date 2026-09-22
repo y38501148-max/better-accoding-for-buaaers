@@ -260,6 +260,7 @@ function renderTests() {
   tools.append(
     button("＋ 添加用例", createCase),
     button("导入 .in/.out", () => void action("importTestCases")),
+    button("恢复已删官方样例", () => void action("restoreDeletedSamples")),
     button("运行全部", () => void action("judge")),
     button("重跑失败", () => void action("rerunFailed")),
     button("撤销删除", () => {

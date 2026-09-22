@@ -58,6 +58,7 @@ export interface Binding {
   revision: number;
   cases: TestCase[];
   tombstones: string[];
+  deletedCases?: TestCase[];
 }
 export interface Session {
   root: string;

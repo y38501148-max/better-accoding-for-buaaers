@@ -82,6 +82,7 @@ const messageSchema = z.discriminatedUnion("type", [
       ...commandNames,
       "settings",
       "importMenu",
+      "restoreDeletedSamples",
       "rerunFailed",
       "editInput",
       "editExpected",
@@ -894,6 +895,21 @@ export async function activate(context: vscode.ExtensionContext) {
         return chooseLanguage(await refreshActive());
       case "addTestCase":
         return updateCases((cases) => cases.push(newCase()));
+      case "restoreDeletedSamples": {
+        trusted();
+        await workbench.flush();
+        const s = await refreshActive();
+        s.binding = await store(s.root).update(
+          s.binding.bindingId,
+          s.binding.revision,
+          (b) => {
+            b.tombstones = [];
+          },
+        );
+        s.binding = await store(s.root).sync(s.binding, s.binding.problem);
+        workbench.show(s.binding, s.root);
+        return;
+      }
       case "importTestCases":
         return importCases();
       case "duplicateTestCase":

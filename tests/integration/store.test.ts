@@ -88,3 +88,20 @@ it("keeps custom ordering and original metadata across edits and sync", async ()
   expect(b.cases[1].locallyModified).toBe(true);
   expect(b.cases[0].hasExpectedOutput).toBe(false);
 });
+
+it("undo after a persisted deletion restores the official identity and clears its tombstone", async () => {
+  let b = await store.import(problem);
+  const original = structuredClone(b.cases[0]);
+  b = await store.saveCases(b.bindingId, b.revision, []);
+  b = await new WorkspaceStore(root).read(b.bindingId);
+  b = await store.saveCases(b.bindingId, b.revision, [original]);
+  expect(b.cases[0].source).toBe("sample");
+  expect(b.cases[0].baseline).toEqual(original.baseline);
+  expect(b.tombstones).not.toContain("sample-1");
+  b = await store.sync(b, {
+    ...problem,
+    samples: [{ key: "sample-1", input: "new official\n", expected: "4\n" }],
+  });
+  expect(b.cases).toHaveLength(1);
+  expect(b.cases[0].input).toBe("new official\n");
+});

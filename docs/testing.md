@@ -8,3 +8,5 @@
 - 必須另行人工验证：最新草稿立即运行、删除撤销后重启、跨题异步隔离、登录失效、双来源真实提交、各平台 Debug stdin/断点、真实学生内测和全新商店安装。
 
 最低目标 VS Code 1.96.4，Stable 测试由 `VSCODE_VERSION=stable npm run test:extension` 触发。跨平台 CI 是证据的一部分，不能替代 Windows 实际工具链与 macOS arm64 实机记录。
+
+2026-09-22 本机 macOS arm64：最低 1.96.4 和 Stable 1.138.0 宿主测试通过；独立用户/扩展目录安装 VSIX 并激活包内 dist 通过（`npm run test:package`）。
