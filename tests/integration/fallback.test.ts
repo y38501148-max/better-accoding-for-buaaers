@@ -2,6 +2,7 @@ import { it, expect, vi } from "vitest";
 import { AccodingClient } from "../../src/accoding/client";
 import { sendSubmission } from "../../src/submissions/send";
 import { contest, problemPage } from "../fixtures/synthetic";
+import { ADMIN_ORIGIN, ORIGIN } from "../../src/model";
 const target = {
   kind: "contest",
   contestId: "7",
@@ -15,111 +16,178 @@ const json = (value: unknown) =>
 function setup(
   options: {
     end?: string;
-    denied?: boolean;
+    start?: string;
+    hidden?: boolean;
+    adminDenied?: boolean;
+    studentDenied?: boolean;
     postFails?: boolean;
+    postDenied?: boolean;
     flips?: boolean;
     contestDenied?: boolean;
+    adminBroken?: boolean;
   } = {},
 ) {
-  const posts: { path: string; body: string }[] = [];
-  let reads = 0;
+  const posts: { url: string; body: string }[] = [];
+  const reads: string[] = [];
+  let contestReads = 0;
   const client = new AccodingClient(undefined, async (url, init) => {
-    const p = new URL(url).pathname;
+    const u = new URL(url),
+      p = u.pathname,
+      admin = u.origin === ADMIN_ORIGIN;
     if (init.method === "POST") {
-      posts.push({ path: p, body: String(init.body) });
+      posts.push({ url, body: String(init.body) });
       if (options.postFails) throw Error("connection lost");
+      if (options.postDenied) return new Response("denied", { status: 403 });
       return json({ id: 99, result: "WT", problem_id: 11, creator_id: 5 });
     }
+    reads.push(url);
     if (p === "/api/contests/7") {
       if (options.contestDenied) return new Response("denied", { status: 403 });
-      reads++;
+      contestReads++;
       return json({
         ...contest,
+        problems: options.hidden ? [] : contest.problems,
+        start_time: options.start,
         end_time:
-          options.flips && reads > 1 ? "2000-01-01T00:00:00Z" : options.end,
+          options.flips && contestReads > 1
+            ? "2000-01-01T00:00:00Z"
+            : options.end,
       });
     }
-    if (p === "/problem/11/index")
-      return options.denied
-        ? new Response("denied", { status: 403 })
-        : new Response(problemPage);
+    if (p === "/problem/11/index") {
+      if (admin ? options.adminDenied : options.studentDenied)
+        return new Response("denied", { status: 403 });
+      if (admin && options.adminBroken)
+        return new Response(
+          problemPage.replace(
+            'action="./submit"',
+            'action="/problem/22/submit"',
+          ),
+        );
+      return new Response(
+        admin
+          ? problemPage
+              .replace("<form action=", '<form method="post" action=')
+              .replace('<input name="_csrf" value="SYNTHETIC-CSRF">', "")
+          : problemPage,
+      );
+    }
     if (p === "/api/users/me") return json({ id: 5 });
     if (p === "/problem/11/submission") return new Response("<html></html>");
-    throw Error(`Unexpected path ${p}`);
+    throw Error(`Unexpected path ${url}`);
   });
   const language = vi.fn(async () => "c");
   const sending = vi.fn(async () => {});
-  return { client, posts, hooks: { language, sending } };
+  return { client, posts, reads, hooks: { language, sending } };
 }
-it("sends only to the exact global problem ID after an ended contest, using actual problemset languages", async () => {
-  const { client, posts, hooks } = setup({ end: "2000-01-01T00:00:00Z" });
-  const result = await sendSubmission(client, target, "int main(){}", hooks);
-  expect(posts).toHaveLength(1);
-  expect(posts[0].path).toBe("/problem/11/submit");
-  expect(new URLSearchParams(posts[0].body).get("code")).toBe("int main(){}");
-  expect(hooks.language.mock.calls[0]).toMatchObject([
-    { languages: ["c"], target: { kind: "problemset", problemId: "11" } },
-    true,
-  ]);
-  expect(hooks.sending).toHaveBeenCalledWith(
-    { kind: "problemset", problemId: "11" },
-    "c",
-  );
-  expect(result?.target.kind).toBe("problemset");
-});
-it.each([undefined, "invalid", "2000-01-01T00:00:00", "2999-01-01T00:00:00Z"])(
-  "keeps active or uncertain end metadata on the contest route (%s)",
-  async (end) => {
-    const { client, posts, hooks } = setup({ end });
-    const result = await sendSubmission(client, target, "code", hooks);
-    expect(posts.map((p) => p.path)).toEqual(["/api/contests/7/submissions"]);
-    expect(result?.target.kind).toBe("contest");
+it.each([
+  { start: "2999-01-01T00:00:00Z" },
+  { hidden: true },
+  { end: "2000-01-01T00:00:00Z" },
+  { contestDenied: true },
+])(
+  "uses admin problem submission for unavailable contest route %j",
+  async (options) => {
+    const { client, posts, hooks } = setup(options);
+    const result = await sendSubmission(client, target, "int main(){}", hooks);
+    expect(posts.map((p) => p.url)).toEqual([
+      `${ADMIN_ORIGIN}/problem/11/submit`,
+    ]);
+    expect(new URLSearchParams(posts[0].body).has("_csrf")).toBe(false);
+    expect(hooks.language).toHaveBeenCalledWith(
+      expect.objectContaining({
+        languages: ["c"],
+        target: { kind: "problemset", problemId: "11", service: "admin" },
+      }),
+      true,
+    );
+    expect(hooks.sending).toHaveBeenCalledWith(
+      { kind: "problemset", problemId: "11", service: "admin" },
+      "c",
+    );
+    expect(result?.target).toEqual({
+      kind: "problemset",
+      problemId: "11",
+      service: "admin",
+    });
   },
 );
-it("handles ending during language selection before either POST is sent", async () => {
+it("falls back from hidden contest through denied admin to student problemset in order", async () => {
+  const { client, posts, reads, hooks } = setup({
+    hidden: true,
+    adminDenied: true,
+  });
+  await sendSubmission(client, target, "code", hooks);
+  expect(posts.map((p) => p.url)).toEqual([`${ORIGIN}/problem/11/submit`]);
+  expect(reads.indexOf(`${ORIGIN}/api/contests/7`)).toBeLessThan(
+    reads.indexOf(`${ADMIN_ORIGIN}/problem/11/index`),
+  );
+  expect(reads.indexOf(`${ADMIN_ORIGIN}/problem/11/index`)).toBeLessThan(
+    reads.indexOf(`${ORIGIN}/problem/11/index`),
+  );
+});
+it.each([undefined, "invalid", "2000-01-01T00:00:00", "2999-01-01T00:00:00Z"])(
+  "keeps active or ambiguous end metadata on contest route (%s)",
+  async (end) => {
+    const { client, posts, reads, hooks } = setup({ end });
+    expect(
+      (await sendSubmission(client, target, "code", hooks))?.target.kind,
+    ).toBe("contest");
+    expect(posts.map((p) => p.url)).toEqual([
+      `${ORIGIN}/api/contests/7/submissions`,
+    ]);
+    expect(reads.some((u) => u.startsWith(ADMIN_ORIGIN))).toBe(false);
+  },
+);
+it("handles ending during language selection before POST", async () => {
   const { client, posts, hooks } = setup({
     end: "2999-01-01T00:00:00Z",
     flips: true,
   });
   await sendSubmission(client, target, "code", hooks);
-  expect(posts.map((p) => p.path)).toEqual(["/problem/11/submit"]);
+  expect(posts.map((p) => p.url)).toEqual([
+    `${ADMIN_ORIGIN}/problem/11/submit`,
+  ]);
   expect(hooks.sending).toHaveBeenCalledTimes(1);
-  expect(hooks.language).toHaveBeenLastCalledWith(
-    expect.objectContaining({ languages: ["c"] }),
-    true,
-  );
 });
-it("requires public problem access even when contest metadata is readable", async () => {
-  const { client, posts, hooks } = setup({
-    end: "2000-01-01T00:00:00Z",
-    denied: true,
+it("does not send or repeatedly probe when all routes deny access", async () => {
+  const { client, posts, reads, hooks } = setup({
+    hidden: true,
+    adminDenied: true,
+    studentDenied: true,
   });
   await expect(
     sendSubmission(client, target, "code", hooks),
   ).rejects.toMatchObject({ kind: "forbidden" });
   expect(posts).toEqual([]);
-  expect(hooks.sending).not.toHaveBeenCalled();
+  expect(reads.filter((u) => u.endsWith("/problem/11/index"))).toHaveLength(2);
 });
-it("does not turn a contest permission error into a fallback", async () => {
-  const { client, posts, hooks } = setup({ contestDenied: true });
-  await expect(
-    sendSubmission(client, target, "code", hooks),
-  ).rejects.toMatchObject({ kind: "forbidden" });
-  expect(posts).toEqual([]);
-});
-it.each(["2999-01-01T00:00:00Z", "2000-01-01T00:00:00Z"])(
-  "never retries either route after an uncertain POST (%s)",
-  async (end) => {
-    const { client, posts, hooks } = setup({ end, postFails: true });
+it.each([
+  { postFails: true },
+  { hidden: true, postFails: true },
+  { hidden: true, adminDenied: true, postFails: true },
+  { postDenied: true },
+  { hidden: true, postDenied: true },
+])(
+  "never sends another POST after an uncertain or rejected send %j",
+  async (options) => {
+    const { client, posts, hooks } = setup(options);
     await expect(
       sendSubmission(client, target, "code", hooks),
-    ).rejects.toMatchObject({ kind: "unknown" });
+    ).rejects.toThrow();
     expect(posts).toHaveLength(1);
     expect(hooks.sending).toHaveBeenCalledTimes(1);
   },
 );
-it("cancels before POST if language selection is dismissed", async () => {
-  const { client, posts, hooks } = setup({ end: "2000-01-01T00:00:00Z" });
+it("refuses an admin form pointing to a different problem", async () => {
+  const { client, posts, hooks } = setup({ hidden: true, adminBroken: true });
+  await expect(
+    sendSubmission(client, target, "code", hooks),
+  ).rejects.toMatchObject({ kind: "protocol" });
+  expect(posts).toEqual([]);
+});
+it("cancels before POST without falling through when language selection is dismissed", async () => {
+  const { client, posts, reads, hooks } = setup({ hidden: true });
   expect(
     await sendSubmission(client, target, "code", {
       ...hooks,
@@ -127,4 +195,5 @@ it("cancels before POST if language selection is dismissed", async () => {
     }),
   ).toBeUndefined();
   expect(posts).toEqual([]);
+  expect(reads).not.toContain(`${ORIGIN}/problem/11/index`);
 });

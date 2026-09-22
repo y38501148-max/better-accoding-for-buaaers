@@ -1,6 +1,6 @@
 import { CookieJar } from "tough-cookie";
 import { setTimeout as delay } from "node:timers/promises";
-import { ADMIN_ORIGIN, ORIGIN } from "../model";
+import { ADMIN_ORIGIN, ORIGIN, idSchema } from "../model";
 export class ApiError extends Error {
   constructor(
     public readonly kind:
@@ -27,6 +27,7 @@ export type Transport = (url: string, init: RequestInit) => Promise<Response>;
 export class AccodingClient {
   private controller = new AbortController();
   private baseOrigin: typeof ORIGIN | typeof ADMIN_ORIGIN = ORIGIN;
+  private adminSubmissionPath?: string;
   get sessionSignal() {
     return this.controller.signal;
   }
@@ -44,6 +45,46 @@ export class AccodingClient {
     reader.baseOrigin = ADMIN_ORIGIN;
     reader.controller = this.controller;
     return reader;
+  }
+  /** Permit only the exact problem submission endpoint; import readers stay read-only. */
+  adminSubmitter(problemId: string) {
+    const submitter = this.adminReader();
+    submitter.adminSubmissionPath = `/problem/${idSchema.parse(problemId)}/submit`;
+    return submitter;
+  }
+  private checkAdminWrite(url: URL, method: string, body?: string) {
+    if (this.origin !== ADMIN_ORIGIN || method === "GET") return;
+    if (
+      !url.search &&
+      !url.hash &&
+      url.pathname === "/submission/getSubmissionApi"
+    ) {
+      // The admin site's read-only result query uses POST. It cannot submit code.
+      const fields = new URLSearchParams(body);
+      let ids: unknown;
+      try {
+        ids = JSON.parse(fields.get("submission_id") ?? "null");
+      } catch {
+        /* rejected below */
+      }
+      if (
+        [...fields.keys()].length === 1 &&
+        Array.isArray(ids) &&
+        ids.length <= 1000 &&
+        ids.every((id) => typeof id === "string" && /^\d+$/.test(id))
+      )
+        return;
+    }
+    if (
+      !this.adminSubmissionPath ||
+      url.pathname !== this.adminSubmissionPath ||
+      url.search ||
+      url.hash
+    )
+      throw new ApiError(
+        "forbidden",
+        "管理端连接只允许核验后的交题或提交状态查询。",
+      );
   }
   cancel() {
     this.controller.abort();
@@ -63,8 +104,7 @@ export class AccodingClient {
     } = {},
   ): Promise<Reply> {
     const method = options.method ?? "GET";
-    if (this.origin === ADMIN_ORIGIN && method !== "GET")
-      throw new ApiError("forbidden", "管理端连接仅用于读取题目。");
+    this.checkAdminWrite(new URL(path, this.origin), method, options.body);
     options = {
       ...options,
       signal: AbortSignal.any([
@@ -112,6 +152,13 @@ export class AccodingClient {
     for (let redirects = 0; redirects <= 6; redirects++) {
       if (url.origin !== this.origin || url.username || url.password)
         throw new ApiError("protocol", "已阻止跨域重定向。");
+      if (
+        this.origin === ADMIN_ORIGIN &&
+        method === "POST" &&
+        url.pathname !== new URL(path, this.origin).pathname
+      )
+        throw new ApiError("protocol", "已阻止管理端 POST 改变目标路径。");
+      this.checkAdminWrite(url, method, body);
       const headers: Record<string, string> = {
         Accept: options.accept ?? "application/json, text/html;q=0.9",
         Cookie: await this.jar.getCookieString(url.href),

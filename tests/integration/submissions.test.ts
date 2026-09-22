@@ -249,3 +249,36 @@ it("guards an uncertain contest attempt atomically before falling back to the pr
     (await store.list("5")).filter(isUncertain).map((a) => a.attemptId),
   ).toEqual([next.attemptId]);
 });
+
+it("preserves admin provenance on restart and polls equal IDs from different routes separately", async () => {
+  const store = new SubmissionStore(directory);
+  const adminTarget = {
+    kind: "problemset" as const,
+    problemId: "11",
+    service: "admin" as const,
+  };
+  const admin = { ...submission, target: adminTarget };
+  const attempt = await store.begin("5", { ...snapshot, target: adminTarget });
+  await store.observe("5", admin, attempt.attemptId);
+  const reloaded = await new SubmissionStore(directory).list("5", adminTarget);
+  expect(reloaded[0].submission?.target).toEqual(adminTarget);
+  expect(
+    await store.list("5", { kind: "problemset", problemId: "11" }),
+  ).toEqual([]);
+  const queried: unknown[] = [];
+  await monitorSubmissions({
+    submissions: [submission, admin],
+    signal: new AbortController().signal,
+    get: async (s) => {
+      queried.push(s.target);
+      return { ...s, result: "AC" };
+    },
+    update: async () => {},
+  });
+  expect(queried).toEqual([target, adminTarget]);
+  const pending = await store.begin("5", { ...snapshot, target: adminTarget });
+  await expect(store.begin("5", snapshot, [], [adminTarget])).rejects.toThrow(
+    "不会自动重发",
+  );
+  expect(pending.target).toEqual(adminTarget);
+});

@@ -167,3 +167,53 @@ it("does not reuse permission from a different contest", async () => {
   expect(seen).toContain(`${ADMIN_ORIGIN}/api/contests/8`);
   expect(seen).toContain(`${ORIGIN}/api/contests/8`);
 });
+
+it("limits an admin submitter to one exact problem path, including POST redirects", async () => {
+  const transport = vi.fn(
+    async () =>
+      new Response(null, {
+        status: 307,
+        headers: { location: "/problem/22/submit" },
+      }),
+  );
+  const admin = new AccodingClient(undefined, transport).adminSubmitter("11");
+  for (const route of [
+    "/problem/22/submit",
+    "/problem/11/edit",
+    "/problem/11/submit?other=1",
+    "/api/contests/7/submissions",
+  ])
+    await expect(
+      admin.request(route, { method: "POST", body: "code=synthetic" }),
+    ).rejects.toMatchObject({ kind: "forbidden" });
+  expect(transport).not.toHaveBeenCalled();
+  await expect(
+    admin.request("/problem/11/submit", {
+      method: "POST",
+      body: "code=synthetic",
+    }),
+  ).rejects.toThrow();
+  expect(transport).toHaveBeenCalledTimes(1);
+});
+
+it("allows only validated submission IDs in the admin read-only POST query", async () => {
+  const transport = vi.fn(async () => json([]));
+  const admin = new AccodingClient(undefined, transport).adminReader();
+  for (const body of [
+    "code=hello",
+    "submission_id=not-json",
+    "submission_id=%5B%22x%22%5D",
+    "submission_id=%5B%2299%22%5D&code=hello",
+  ])
+    await expect(
+      admin.request("/submission/getSubmissionApi", { method: "POST", body }),
+    ).rejects.toMatchObject({ kind: "forbidden" });
+  expect(transport).not.toHaveBeenCalled();
+  await admin.request("/submission/getSubmissionApi", {
+    method: "POST",
+    body: new URLSearchParams({
+      submission_id: JSON.stringify(["99"]),
+    }).toString(),
+  });
+  expect(transport).toHaveBeenCalledTimes(1);
+});

@@ -4,6 +4,7 @@ import { z } from "zod";
 import { AccodingClient, ApiError } from "./client";
 import {
   ORIGIN,
+  ADMIN_ORIGIN,
   idSchema,
   type Problem,
   type Target,
@@ -77,6 +78,18 @@ export function contestHasEnded(snapshot: ContestSnapshot, now = Date.now()) {
     /(?:Z|[+-]\d{2}:?\d{2})$/i.test(end) &&
     Number.isFinite(Date.parse(end)) &&
     now >= Date.parse(end)
+  );
+}
+export function contestHasNotStarted(
+  snapshot: ContestSnapshot,
+  now = Date.now(),
+) {
+  const start = snapshot.startTime;
+  return (
+    !!start &&
+    /(?:Z|[+-]\d{2}:?\d{2})$/i.test(start) &&
+    Number.isFinite(Date.parse(start)) &&
+    now < Date.parse(start)
   );
 }
 export class ContestEndedError extends Error {
@@ -157,8 +170,11 @@ export class ContestAdapter {
       (p) => p.target.problemId === target.problemId,
     );
     if (!problem || problem.target.kind !== "contest")
-      throw new ApiError("forbidden", "当前比赛已不包含此题，请同步后确认。");
-    if (contestHasEnded(snapshot)) {
+      throw new ApiError(
+        "forbidden",
+        "学生端比赛暂未提供此题，可能尚未开始或当前无访问权限。",
+      );
+    if (contestHasEnded(snapshot) || contestHasNotStarted(snapshot)) {
       if (onEnded) return onEnded();
       throw new ContestEndedError();
     }
@@ -205,13 +221,18 @@ export class ContestAdapter {
     return s;
   }
 }
-export function parseProblemPage(html: string, url: string, id: string) {
+export function parseProblemPage(
+  html: string,
+  url: string,
+  id: string,
+  origin: typeof ORIGIN | typeof ADMIN_ORIGIN = ORIGIN,
+) {
   const u = new URL(url);
   const $ = cheerio.load(html);
   if (u.pathname === "/user/login" || $("input[name=password]").length)
     throw new ApiError("auth", "请先登录 Accoding。");
   if (
-    u.origin !== ORIGIN ||
+    u.origin !== origin ||
     u.pathname !== `/problem/${id}/index` ||
     !$("h1.problem-title").length ||
     /题目不存在，或者你没有权限/.test(html)
@@ -234,15 +255,19 @@ export function parseProblemPage(html: string, url: string, id: string) {
     .filter(Boolean);
   const csrf = form.find("input[name=_csrf]").attr("value");
   if (
-    action.origin !== ORIGIN ||
+    action.origin !== origin ||
     action.pathname !== `/problem/${id}/submit` ||
     !languages.length ||
-    !csrf
+    (origin === ORIGIN ? !csrf : form.attr("method")?.toLowerCase() !== "post")
   )
     throw new ApiError("protocol", "题目提交表单不完整或发生变化。");
   const text = body.text();
   const problem: Problem = {
-    target: { kind: "problemset", problemId: id },
+    target: {
+      kind: "problemset",
+      problemId: id,
+      ...(origin === ADMIN_ORIGIN ? { service: "admin" as const } : {}),
+    },
     title: heading.text(),
     label: `#${id}`,
     statement: { format: "html", content, baseUrl: url },
@@ -252,7 +277,14 @@ export function parseProblemPage(html: string, url: string, id: string) {
     memoryLimit: text.match(/内存限制[:：]\s*(\d+\s*\w+)/)?.[1],
     special: /special judge|交互题|特殊评测/i.test(text),
   };
-  return { problem, action: action.href, csrf };
+  // Mirror the site's declared transport encoding without executing remote scripts.
+  const scripts = $("script").text();
+  const shiftCode =
+    scripts.includes("function encrypt(str, key)") &&
+    /const key\s*=\s*10\s*;/.test(scripts) &&
+    scripts.includes('str.includes("print")') &&
+    scripts.includes('str.includes("length")');
+  return { problem, action: action.href, csrf, shiftCode };
 }
 export const submissionSchema = z.object({
   id: idSchema,
@@ -295,10 +327,14 @@ export function parseSubmission(value: unknown, target: Target): Submission {
 }
 export class ProblemsetAdapter {
   constructor(private client: AccodingClient) {}
+  private assertTarget(target: Extract<Target, { kind: "problemset" }>) {
+    if ((target.service === "admin") !== (this.client.origin === ADMIN_ORIGIN))
+      throw new ApiError("protocol", "提交记录与查询端口不匹配。");
+  }
   private async page(id: string) {
     id = idSchema.parse(id);
     const r = await this.client.request(`/problem/${id}/index`);
-    return parseProblemPage(r.text, r.url, id);
+    return parseProblemPage(r.text, r.url, id, this.client.origin);
   }
   async fetch(id: string) {
     return (await this.page(id)).problem;
@@ -309,7 +345,10 @@ export class ProblemsetAdapter {
     lang: string,
     onSending?: () => Promise<void>,
   ): Promise<Submission> {
-    const { problem, action, csrf } = await this.page(target.problemId);
+    this.assertTarget(target);
+    const { problem, action, csrf, shiftCode } = await this.page(
+      target.problemId,
+    );
     if (!problem.languages.includes(lang))
       throw new ApiError("protocol", "提交语言已失效，请重新选择。");
     const identity = await currentUser(this.client);
@@ -319,7 +358,11 @@ export class ProblemsetAdapter {
     await onSending?.();
     const r = await this.client.request(action, {
       method: "POST",
-      body: new URLSearchParams({ _csrf: csrf, code, lang }).toString(),
+      body: new URLSearchParams({
+        ...(csrf ? { _csrf: csrf } : {}),
+        code: encodeSubmissionCode(code, shiftCode),
+        lang,
+      }).toString(),
     });
     // Accept a concrete ID only. A redirected list does not prove which submission was created.
     if (r.headers.get("content-type")?.includes("application/json"))
@@ -374,6 +417,7 @@ export class ProblemsetAdapter {
     target: Extract<Target, { kind: "problemset" }>,
     userId: string,
   ): Promise<Submission[]> {
+    this.assertTarget(target);
     const r = await this.client.request(
       `/problem/${target.problemId}/submission`,
     );
@@ -395,18 +439,37 @@ export class ProblemsetAdapter {
   }
   private async query(target: Target, ids: string[]) {
     const q = new URLSearchParams({ submission_id: JSON.stringify(ids) });
-    const data = z
-      .array(z.unknown())
-      .parse(await this.client.json(`/submission/getSubmissionApi?${q}`));
+    const data = z.array(z.unknown()).parse(
+      await (this.client.origin === ADMIN_ORIGIN
+        ? this.client.json("/submission/getSubmissionApi", {
+            method: "POST",
+            body: q.toString(),
+          })
+        : this.client.json(`/submission/getSubmissionApi?${q}`)),
+    );
     return data
       .map((x) => parseSubmission(x, target))
       .filter((s) => ids.includes(s.id));
   }
   async get(target: Extract<Target, { kind: "problemset" }>, id: string) {
+    this.assertTarget(target);
     const list = await this.query(target, [idSchema.parse(id)]);
     const s = list.find((s) => s.id === id);
     if (!s || (s.problemId && s.problemId !== target.problemId))
       throw new ApiError("protocol", "未找到对应题目的提交记录。");
     return s;
   }
+}
+
+export function encodeSubmissionCode(code: string, enabled: boolean) {
+  if (!enabled || (!code.includes("print") && !code.includes("length")))
+    return code;
+  return code
+    .split("")
+    .map((c) =>
+      c.charCodeAt(0) <= 127
+        ? String.fromCharCode((c.charCodeAt(0) + 10) % 128)
+        : c,
+    )
+    .join("");
 }

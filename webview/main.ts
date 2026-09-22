@@ -55,7 +55,7 @@ app.innerHTML = `
   <div class="brand" title="Better Accoding For BUAAers">${icon("code")}</div>
   <div class="rail-group">
     ${navButton("play", "judge", "评测", "保存并运行启用的用例")}
-    ${navButton("send", "submit", "交题", "提交关联源码；比赛结束后自动改用题库")}
+    ${navButton("send", "submit", "交题", "提交关联源码；比赛不可用时依次尝试后端和学生端题库")}
     ${navButton("debug", "debugTestCase", "调试", "使用选定用例开始调试")}
   </div>
   <div class="rail-divider"></div>
@@ -394,10 +394,10 @@ function render() {
   const submitButton = app.querySelector<HTMLButtonElement>(
     '[data-action="submit"]',
   )!;
-  submitButton.disabled = !!binding.unavailable;
+  submitButton.disabled = false;
   submitButton.title = binding.unavailable
-    ? "此题已移除；同步确认恢复后才可交题"
-    : "提交关联源码；比赛结束后自动改用题库";
+    ? "比赛暂未提供此题，将核验后端与学生端题库权限"
+    : "提交关联源码；比赛不可用时依次尝试后端和学生端题库";
   const label = problemLabel(binding.problem);
   document.querySelector("#problem-picker-label")!.textContent =
     `${label} · 切换题目`;
@@ -427,7 +427,7 @@ function render() {
   if (binding.unavailable) {
     const note = el(
       "p",
-      "此题已从比赛移除。代码和用例已保留，可继续本地练习；同步确认恢复后才可交题。",
+      "最近同步的比赛题单暂未提供此题。代码和用例已保留；交题时会重新检查比赛，并按权限尝试后端和学生端题库。",
     );
     note.className = "notice";
     content.append(note);
@@ -499,7 +499,7 @@ function render() {
       content.append(
         el(
           "p",
-          `提交状态待确认${attempt.target?.kind === "problemset" ? " · 题库（不计比赛成绩）" : ""}${attempt.createdAt ? " · " + new Date(attempt.createdAt).toLocaleString() : ""}${attempt.language ? " · " + attempt.language : ""}。尚未取得提交 ID，请刷新本人记录核对；不会自动重发。`,
+          `提交状态待确认${attempt.target?.kind === "problemset" ? `${attempt.target.service === "admin" ? " · 4000 后端题库" : " · 学生端题库"}（不计比赛成绩）` : ""}${attempt.createdAt ? " · " + new Date(attempt.createdAt).toLocaleString() : ""}${attempt.language ? " · " + attempt.language : ""}。尚未取得提交 ID，请刷新本人记录核对；不会自动重发。`,
         ),
       );
     if (!submissions.length && !uncertainSubmissions.length)
@@ -509,7 +509,7 @@ function render() {
       row.append(
         el(
           "summary",
-          `#${s.id} · ${s.target.kind === "contest" ? `比赛 #${s.target.contestId}` : "题库（不计比赛成绩）"} · OJ：${s.result}${s.score !== undefined ? ` · 得分 ${s.score}` : ""}`,
+          `#${s.id} · ${s.target.kind === "contest" ? `比赛 #${s.target.contestId}` : `${s.target.service === "admin" ? "4000 后端题库" : "学生端题库"}（不计比赛成绩）`} · OJ：${s.result}${s.score !== undefined ? ` · 得分 ${s.score}` : ""}`,
         ),
         el("pre", s.detail ?? ""),
       );

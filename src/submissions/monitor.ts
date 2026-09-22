@@ -1,4 +1,5 @@
 import { setTimeout as sleep } from "node:timers/promises";
+import { bindingId } from "../model";
 import type { Submission } from "../accoding/adapters";
 import { isPending } from "./store";
 
@@ -12,7 +13,9 @@ export async function monitorSubmissions(options: {
   budgetMs?: number;
 }): Promise<"complete" | "stopped" | "waiting"> {
   const pending = new Map(
-    options.submissions.filter(isPending).map((s) => [s.id, s]),
+    options.submissions
+      .filter(isPending)
+      .map((s) => [`${bindingId(s.target)}:${s.id}`, s]),
   );
   const started = Date.now();
   let interval = options.intervalMs ?? 2000;

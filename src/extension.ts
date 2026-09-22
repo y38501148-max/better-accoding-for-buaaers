@@ -30,6 +30,7 @@ import {
   caseSchema,
   hash,
   problemUrl,
+  targetLabel,
   type Binding,
   type Session,
   type TestCase,
@@ -710,8 +711,6 @@ export async function activate(context: vscode.ExtensionContext) {
     try {
       await workbench.flush();
       s = await refreshActive();
-      if (s.binding.unavailable)
-        throw Error("此题已从比赛移除，仍可本地练习；请同步确认恢复后再交题。");
       const identity = await ensureUser();
       account = identity.id;
       const unresolved = (await submissionAttempts(s, account)).filter(
@@ -737,7 +736,7 @@ export async function activate(context: vscode.ExtensionContext) {
           if (fallback && sameSubmissionContext(s!, account!, connection))
             workbench.post({
               type: "notice",
-              text: `比赛已结束，将使用题库 #${problem.target.problemId} 提交，不计比赛成绩。`,
+              text: `比赛路径暂不可用，将使用${targetLabel(problem.target)}提交，不计比赛成绩。`,
             });
           if (
             !problem.languages.includes(
@@ -759,7 +758,15 @@ export async function activate(context: vscode.ExtensionContext) {
               sourceHash: hash(code),
             },
             acknowledged,
-            [original, { kind: "problemset", problemId: original.problemId }],
+            [
+              original,
+              { kind: "problemset", problemId: original.problemId },
+              {
+                kind: "problemset",
+                problemId: original.problemId,
+                service: "admin",
+              },
+            ],
           );
           sent = true;
         },
@@ -770,7 +777,7 @@ export async function activate(context: vscode.ExtensionContext) {
       if (sameSubmissionContext(s, account)) {
         workbench.post({
           type: "notice",
-          text: `${submission.target.kind === "problemset" && original.kind === "contest" ? "已通过题库提交（不计比赛成绩）" : "已提交"} #${submission.id}，OJ：${submission.result}`,
+          text: `已通过${targetLabel(submission.target)}提交 #${submission.id}，OJ：${submission.result}${submission.target.kind === "problemset" && original.kind === "contest" ? "（不计比赛成绩）" : ""}`,
         });
         void restoreSubmissions(s).catch(error);
       }
@@ -811,7 +818,9 @@ export async function activate(context: vscode.ExtensionContext) {
           const t = submission.target;
           return t.kind === "contest"
             ? new ContestAdapter(connection).get(t, submission.id)
-            : new ProblemsetAdapter(connection).get(t, submission.id);
+            : new ProblemsetAdapter(
+                t.service === "admin" ? connection.adminReader() : connection,
+              ).get(t, submission.id);
         },
         update: async (submission) => {
           if (!valid()) return;
@@ -852,18 +861,29 @@ export async function activate(context: vscode.ExtensionContext) {
     const queries = [
       t.kind === "contest"
         ? new ContestAdapter(connection).list(t)
-        : new ProblemsetAdapter(connection).list(t, identity.id),
+        : new ProblemsetAdapter(
+            t.service === "admin" ? connection.adminReader() : connection,
+          ).list(t, identity.id),
     ];
-    if (
-      t.kind === "contest" &&
-      attempts.some((a) => a.target.kind === "problemset")
-    )
-      queries.push(
-        new ProblemsetAdapter(connection).list(
-          { kind: "problemset", problemId: t.problemId },
-          identity.id,
+    if (t.kind === "contest") {
+      const services = new Set(
+        attempts.flatMap((a) =>
+          a.target.kind === "problemset" ? [a.target.service ?? "student"] : [],
         ),
       );
+      for (const service of services) {
+        const target = {
+          kind: "problemset" as const,
+          problemId: t.problemId,
+          ...(service === "admin" ? { service: "admin" as const } : {}),
+        };
+        queries.push(
+          new ProblemsetAdapter(
+            service === "admin" ? connection.adminReader() : connection,
+          ).list(target, identity.id),
+        );
+      }
+    }
     const results = await Promise.allSettled(queries);
     if (!valid()) return;
     const failures: string[] = [];

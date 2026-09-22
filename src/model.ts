@@ -6,7 +6,11 @@ export const idSchema = z
   .union([z.string().regex(/^\d+$/), z.number().int().nonnegative().safe()])
   .transform(String);
 export const targetSchema = z.discriminatedUnion("kind", [
-  z.object({ kind: z.literal("problemset"), problemId: idSchema }),
+  z.object({
+    kind: z.literal("problemset"),
+    problemId: idSchema,
+    service: z.literal("admin").optional(),
+  }),
   z.object({
     kind: z.literal("contest"),
     contestId: idSchema,
@@ -83,17 +87,17 @@ export interface Session {
 }
 export function bindingId(target: Target): string {
   return target.kind === "problemset"
-    ? `problem-${target.problemId}`
+    ? `${target.service === "admin" ? "admin-" : ""}problem-${target.problemId}`
     : `contest-${target.contestId}-${target.problemId}`;
 }
 export function targetLabel(target: Target): string {
   return target.kind === "problemset"
-    ? `题库 #${target.problemId}`
+    ? `${target.service === "admin" ? "4000 后端题库" : "学生端题库"} #${target.problemId}`
     : `比赛 #${target.contestId} · #${target.problemId}`;
 }
 export function problemUrl(target: Target): string {
   return target.kind === "problemset"
-    ? `${ORIGIN}/problem/${target.problemId}/index`
+    ? `${target.service === "admin" ? ADMIN_ORIGIN : ORIGIN}/problem/${target.problemId}/index`
     : `${ORIGIN}/contest-ng/index.html#/${target.contestId}`;
 }
 export const hash = (value: string) =>
