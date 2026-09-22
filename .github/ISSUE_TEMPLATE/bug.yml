@@ -1,0 +1,23 @@
+name: 问题报告
+description: 反馈登录、导入、评测或界面问题
+title: '[Bug] '
+body:
+  - type: markdown
+    attributes:
+      value: 请勿公开密码、Cookie、CSRF、学生信息、私有题面或完整提交记录。
+  - type: textarea
+    id: environment
+    attributes:
+      label: 系统、架构、VS Code/插件/工具链版本
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: 复现步骤、预期和实际结果
+    validations:
+      required: true
+  - type: textarea
+    id: diagnostics
+    attributes:
+      label: 已检查的脱敏诊断

@@ -1,0 +1,328 @@
+{
+  "name": "better-accoding-for-buaaers",
+  "displayName": "Better Accoding For BUAAers",
+  "description": "面向北航 Accoding 的非官方 VS Code 助手：左题右码、可编辑用例与本地评测。",
+  "version": "0.1.0",
+  "publisher": "muzermat",
+  "private": true,
+  "license": "MIT",
+  "engines": {
+    "vscode": "^1.96.4",
+    "node": ">=22.12.0"
+  },
+  "main": "./dist/extension.js",
+  "icon": "media/icon.png",
+  "categories": [
+    "Education",
+    "Other"
+  ],
+  "keywords": [
+    "Accoding",
+    "BUAA",
+    "OJ",
+    "C",
+    "C++"
+  ],
+  "extensionKind": [
+    "workspace"
+  ],
+  "activationEvents": [
+    "onStartupFinished",
+    "onWebviewPanel:betterAccoding.workbench"
+  ],
+  "capabilities": {
+    "untrustedWorkspaces": {
+      "supported": "limited",
+      "description": "未信任工作区只可阅读题面，禁止编译、运行、调试及交题。"
+    },
+    "virtualWorkspaces": {
+      "supported": false
+    }
+  },
+  "scripts": {
+    "lint": "eslint src webview tests scripts",
+    "typecheck": "tsc --noEmit",
+    "test:unit": "vitest run tests/unit",
+    "test:integration": "vitest run tests/integration",
+    "test:extension": "node scripts/test-extension.mjs",
+    "build": "node scripts/build.mjs",
+    "vscode:prepublish": "npm run build",
+    "check:package": "node scripts/check-package.mjs",
+    "release:checksum": "node scripts/checksum.mjs",
+    "package": "node scripts/package.mjs",
+    "format:check": "prettier --check src webview tests scripts"
+  },
+  "contributes": {
+    "commands": [
+      {
+        "command": "betterAccoding.login",
+        "title": "登录 Accoding",
+        "category": "Accoding"
+      },
+      {
+        "command": "betterAccoding.logout",
+        "title": "退出登录",
+        "category": "Accoding"
+      },
+      {
+        "command": "betterAccoding.importProblem",
+        "title": "按题号导入",
+        "category": "Accoding"
+      },
+      {
+        "command": "betterAccoding.importContest",
+        "title": "按比赛导入",
+        "category": "Accoding"
+      },
+      {
+        "command": "betterAccoding.importFromUrl",
+        "title": "粘贴题目或比赛链接",
+        "category": "Accoding"
+      },
+      {
+        "command": "betterAccoding.syncProblem",
+        "title": "同步当前题目",
+        "category": "Accoding"
+      },
+      {
+        "command": "betterAccoding.syncContest",
+        "title": "同步当前比赛",
+        "category": "Accoding"
+      },
+      {
+        "command": "betterAccoding.openProblem",
+        "title": "打开题目",
+        "category": "Accoding"
+      },
+      {
+        "command": "betterAccoding.restoreLayout",
+        "title": "恢复左题右码布局",
+        "category": "Accoding"
+      },
+      {
+        "command": "betterAccoding.selectProblem",
+        "title": "选择题目",
+        "category": "Accoding"
+      },
+      {
+        "command": "betterAccoding.bindFile",
+        "title": "关联源文件",
+        "category": "Accoding"
+      },
+      {
+        "command": "betterAccoding.addTestCase",
+        "title": "添加用例",
+        "category": "Accoding"
+      },
+      {
+        "command": "betterAccoding.importTestCases",
+        "title": "导入 .in/.out 用例",
+        "category": "Accoding"
+      },
+      {
+        "command": "betterAccoding.duplicateTestCase",
+        "title": "复制用例",
+        "category": "Accoding"
+      },
+      {
+        "command": "betterAccoding.deleteTestCase",
+        "title": "删除用例",
+        "category": "Accoding"
+      },
+      {
+        "command": "betterAccoding.restoreOfficialSample",
+        "title": "恢复官方样例",
+        "category": "Accoding"
+      },
+      {
+        "command": "betterAccoding.judge",
+        "title": "样例评测",
+        "category": "Accoding"
+      },
+      {
+        "command": "betterAccoding.runTestCase",
+        "title": "运行单个用例",
+        "category": "Accoding"
+      },
+      {
+        "command": "betterAccoding.debugTestCase",
+        "title": "调试用例",
+        "category": "Accoding"
+      },
+      {
+        "command": "betterAccoding.cancelRun",
+        "title": "停止运行和查询",
+        "category": "Accoding"
+      },
+      {
+        "command": "betterAccoding.selectSubmissionLanguage",
+        "title": "选择提交语言",
+        "category": "Accoding"
+      },
+      {
+        "command": "betterAccoding.selectSubmissionTarget",
+        "title": "选择提交来源",
+        "category": "Accoding"
+      },
+      {
+        "command": "betterAccoding.submit",
+        "title": "一键交题",
+        "category": "Accoding"
+      },
+      {
+        "command": "betterAccoding.refreshSubmissions",
+        "title": "刷新本人提交记录",
+        "category": "Accoding"
+      },
+      {
+        "command": "betterAccoding.openOnWebsite",
+        "title": "在原站打开",
+        "category": "Accoding"
+      },
+      {
+        "command": "betterAccoding.checkEnvironment",
+        "title": "检查编译环境",
+        "category": "Accoding"
+      },
+      {
+        "command": "betterAccoding.exportDiagnostics",
+        "title": "导出脱敏诊断",
+        "category": "Accoding"
+      },
+      {
+        "command": "betterAccoding.clearPrivateData",
+        "title": "清理个人提交缓存",
+        "category": "Accoding"
+      }
+    ],
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "betterAccoding",
+          "title": "Accoding",
+          "icon": "media/activity.svg"
+        }
+      ]
+    },
+    "views": {
+      "betterAccoding": [
+        {
+          "id": "betterAccoding.problems",
+          "name": "题单"
+        }
+      ]
+    },
+    "configuration": {
+      "title": "Better Accoding",
+      "properties": {
+        "betterAccoding.compiler.c": {
+          "type": "string",
+          "default": "gcc",
+          "description": "C 编译器可执行路径；macOS 建议 clang。",
+          "scope": "resource"
+        },
+        "betterAccoding.compiler.cpp": {
+          "type": "string",
+          "default": "g++",
+          "description": "C++ 编译器可执行路径；macOS 建议 clang++。",
+          "scope": "resource"
+        },
+        "betterAccoding.compiler.cArgs": {
+          "type": "array",
+          "default": [
+            "-std=c99",
+            "-Wall",
+            "-Wextra",
+            "-O2"
+          ],
+          "description": "本地 C 编译参数，与 OJ 标准独立。",
+          "scope": "resource",
+          "items": {
+            "type": "string"
+          }
+        },
+        "betterAccoding.compiler.cppArgs": {
+          "type": "array",
+          "default": [
+            "-std=c++17",
+            "-Wall",
+            "-Wextra",
+            "-O2"
+          ],
+          "description": "本地 C++ 编译参数。",
+          "scope": "resource",
+          "items": {
+            "type": "string"
+          }
+        },
+        "betterAccoding.run.timeoutMs": {
+          "type": "number",
+          "default": 2000,
+          "description": "每个本地用例的墙钟超时毫秒数。",
+          "scope": "resource",
+          "minimum": 1,
+          "maximum": 600000
+        },
+        "betterAccoding.run.outputLimit": {
+          "type": "number",
+          "default": 1048576,
+          "description": "单例 stdout 与 stderr 总字节上限。",
+          "scope": "resource",
+          "minimum": 1,
+          "maximum": 16777216
+        },
+        "betterAccoding.debug.gdb": {
+          "type": "string",
+          "default": "gdb",
+          "description": "GDB 路径。",
+          "scope": "resource"
+        }
+      }
+    },
+    "menus": {
+      "view/title": [
+        {
+          "command": "betterAccoding.importProblem",
+          "when": "view == betterAccoding.problems",
+          "group": "navigation"
+        },
+        {
+          "command": "betterAccoding.importContest",
+          "when": "view == betterAccoding.problems",
+          "group": "navigation"
+        }
+      ]
+    }
+  },
+  "dependencies": {
+    "cheerio": "1.0.0",
+    "katex": "0.16.22",
+    "markdown-it": "14.3.2",
+    "sanitize-html": "2.17.7",
+    "tough-cookie": "5.1.2",
+    "zod": "3.25.76"
+  },
+  "devDependencies": {
+    "@types/katex": "0.16.8",
+    "@types/markdown-it": "14.2.0",
+    "@types/node": "22.20.4",
+    "@types/sanitize-html": "2.16.1",
+    "@types/vscode": "1.96.0",
+    "@vscode/test-electron": "2.5.2",
+    "@vscode/vsce": "3.6.2",
+    "esbuild": "0.28.2",
+    "eslint": "9.39.5",
+    "prettier": "3.9.8",
+    "typescript": "5.9.3",
+    "typescript-eslint": "8.70.1",
+    "vitest": "5.0.1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/y38501148-max/better-accoding-for-buaaers.git"
+  },
+  "homepage": "https://github.com/y38501148-max/better-accoding-for-buaaers#readme",
+  "bugs": {
+    "url": "https://github.com/y38501148-max/better-accoding-for-buaaers/issues"
+  }
+}

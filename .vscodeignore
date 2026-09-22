@@ -1,0 +1,12 @@
+**
+!package.json
+!README.md
+!CHANGELOG.md
+!PRIVACY.md
+!SECURITY.md
+!SUPPORT.md
+!LICENSE
+!THIRD_PARTY_NOTICES.md
+!dist/**
+!media/**
+!docs/environment.md

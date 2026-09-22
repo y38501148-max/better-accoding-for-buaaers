@@ -1,0 +1,33 @@
+name: CI
+on: [push, pull_request, workflow_dispatch]
+permissions:
+  contents: read
+jobs:
+  verify:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-14]
+        vscode: ["1.96.4", stable]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run lint
+      - run: npm run typecheck
+      - run: npm run test:unit
+      - run: npm run test:integration
+      - run: npm run build
+      - run: xvfb-run -a npm run test:extension
+        if: runner.os == 'Linux'
+        env:
+          VSCODE_VERSION: ${{ matrix.vscode }}
+      - run: npm run test:extension
+        if: runner.os != 'Linux'
+        env:
+          VSCODE_VERSION: ${{ matrix.vscode }}
+      - run: npm run check:package
