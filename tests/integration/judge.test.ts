@@ -22,9 +22,10 @@ afterAll(async () => {
 });
 it("compiles immutable C snapshot and closes stdin for EOF", async () => {
   const source = path.join(dir, "-main.c");
+  await fs.writeFile(path.join(dir, "numbers.h"), "#define INITIAL_SUM 0\n");
   await fs.writeFile(
     source,
-    '#include <stdio.h>\nint main(){int n,s=0;while(scanf("%d",&n)==1)s+=n;printf("%d\\n",s);}',
+    '#include <stdio.h>\n#include "numbers.h"\nint main(){int n,s=INITIAL_SUM;while(scanf("%d",&n)==1)s+=n;printf("%d\\n",s);}',
   );
   const c = { ...newCase(), input: "1 2 3", expected: "6\n" };
   const r = await judge(source, dir, [c], tc);

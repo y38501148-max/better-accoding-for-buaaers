@@ -90,13 +90,20 @@ export async function compile(
     ...flags,
     ...(debug ? ["-g", "-O0"] : []),
     "-iquote",
-    path.dirname(source),
-    snapshot,
+    path.relative(directory, path.dirname(source)) || ".",
+    path.basename(snapshot),
     "-o",
-    program,
+    path.basename(program),
   ];
-  const result = await runProcess(isC ? toolchain.c : toolchain.cpp, args, {
-    cwd: path.dirname(source),
+  const configuredCompiler = isC ? toolchain.c : toolchain.cpp;
+  const compiler =
+    configuredCompiler.includes("/") || configuredCompiler.includes("\\")
+      ? path.resolve(path.dirname(source), configuredCompiler)
+      : configuredCompiler;
+  // MinGW linkers may decode absolute Unicode paths through the system code page.
+  // Keep the build directory in the OS-level cwd and pass ASCII artifact names.
+  const result = await runProcess(compiler, args, {
+    cwd: directory,
     timeoutMs: 30000,
     outputLimit: toolchain.outputLimit,
     signal,
