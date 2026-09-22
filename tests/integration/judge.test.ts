@@ -154,3 +154,21 @@ it(
     expect(result.cases[0].stdout.replace(/\r\n/g, "\n")).toBe("hello\n");
   },
 );
+it(
+  "ignores trailing output whitespace and stderr diagnostics in the default mode",
+  { timeout: 40000 },
+  async () => {
+    const source = path.join(dir, "whitespace.c");
+    await fs.writeFile(
+      source,
+      '#include <stdio.h>\nint main(){printf("hello \\t\\nworld\\n\\n");fprintf(stderr,"debug message\\n");return 0;}',
+    );
+    const normal = { ...newCase(), expected: "hello\nworld" };
+    const strict = { ...normal, id: "strict", comparison: "exact" as const };
+    const wrong = { ...normal, id: "wrong", expected: "hello\nwrong" };
+    const result = await judge(source, dir, [normal, strict, wrong], tc);
+    expect(result.compilation.exitCode, result.compilation.stderr).toBe(0);
+    expect(result.cases.map((c) => c.status)).toEqual(["PASS", "FAIL", "FAIL"]);
+    expect(result.cases[0].stderr).toBe("debug message\n");
+  },
+);

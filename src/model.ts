@@ -69,6 +69,7 @@ export const caseSchema = z.object({
 export type TestCase = z.infer<typeof caseSchema>;
 export interface Binding {
   schemaVersion: 2;
+  comparisonDefaultsVersion?: 1;
   bindingId: string;
   problem: Problem;
   sourceFile: string;

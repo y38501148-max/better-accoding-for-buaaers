@@ -37,7 +37,7 @@ export function newCase(name = "自定义用例"): TestCase {
     hasExpectedOutput: true,
     enabled: true,
     revision: 0,
-    comparison: "exact",
+    comparison: "trim-line-end",
     locallyModified: false,
   };
 }
@@ -121,6 +121,17 @@ export class WorkspaceStore {
     const externalChanged = binding.fileHashes
       ? await readExternalCaseEdits(this.root, binding)
       : false;
+    const migratedComparison = binding.comparisonDefaultsVersion !== 1;
+    if (migratedComparison) {
+      for (const c of [...binding.cases, ...(binding.deletedCases ?? [])]) {
+        if (c.comparison === "exact") {
+          c.comparison = "trim-line-end";
+          c.revision++;
+        }
+      }
+      binding.comparisonDefaultsVersion = 1;
+      binding.revision++;
+    }
     const repairedSamples = this.restoreOutputOnlySamples(binding);
     if (repairedSamples) binding.revision++;
     if (!binding.fileHashes) {
@@ -140,7 +151,12 @@ export class WorkspaceStore {
       await commitCaseFiles(this.root, binding, previous, rawJSON);
     } else {
       if (metadataChanged) binding.revision++;
-      if (externalChanged || metadataChanged || repairedSamples) {
+      if (
+        externalChanged ||
+        metadataChanged ||
+        repairedSamples ||
+        migratedComparison
+      ) {
         // External files already contain the new data. Commit their versions without
         // rewriting them, so queued Webview saves must resolve the revision conflict.
         if ((await fs.readFile(file, "utf8")) !== rawJSON)
@@ -236,6 +252,7 @@ export class WorkspaceStore {
       }
       const binding: Binding = {
         schemaVersion: 2,
+        comparisonDefaultsVersion: 1,
         bindingId: id,
         problem,
         sourceFile,

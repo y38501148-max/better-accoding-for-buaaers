@@ -284,7 +284,12 @@ export async function activate(context: vscode.ExtensionContext) {
       await workbench.flush();
       const binding = await store(s.root).read(s.binding.bindingId);
       const source = await safePath(s.root, binding.sourceFile);
-      await workbench.open(vscode.Uri.file(source), restore);
+      const sources = await Promise.all(
+        (await store(s.root).list()).map(async (b) =>
+          vscode.Uri.file(await safePath(s.root, b.sourceFile)),
+        ),
+      );
+      await workbench.open(vscode.Uri.file(source), restore, sources);
       active = { root: s.root, binding };
       await vscode.commands.executeCommand(
         "setContext",
@@ -1255,10 +1260,7 @@ export async function activate(context: vscode.ExtensionContext) {
         const doc = await vscode.workspace.openTextDocument(
           vscode.Uri.file(file),
         );
-        await vscode.window.showTextDocument(doc, {
-          viewColumn: vscode.ViewColumn.Beside,
-          preview: false,
-        });
+        await workbench.openCaseFile(doc);
         return;
       }
       case "openOnWebsite":

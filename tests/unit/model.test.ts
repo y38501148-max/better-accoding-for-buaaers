@@ -105,6 +105,14 @@ describe("comparison semantics", () => {
     expect(compare(" a\t b\n", "a b", "tokens").equal).toBe(true);
     expect(compare("", "\n", "exact").equal).toBe(false);
   });
+  it("ignores trailing spaces and final blank lines while preserving meaningful layout", () => {
+    for (const actual of ["a", "a\n", "a \t\r\n\r\n", "a\n \t\n"])
+      expect(compare(actual, "a\n", "trim-line-end").equal).toBe(true);
+    expect(compare(" \t\n\n", "", "trim-line-end").equal).toBe(true);
+    for (const actual of [" a\nb", "a\n\nb", "a b", "a\nc"])
+      expect(compare(actual, "a\nb", "trim-line-end").equal).toBe(false);
+    expect(compare("a  b", "a b", "trim-line-end").equal).toBe(false);
+  });
   it("describes first mismatch and end of output", () =>
     expect(compare("a\nb", "a\nb\n", "exact")).toMatchObject({
       equal: false,

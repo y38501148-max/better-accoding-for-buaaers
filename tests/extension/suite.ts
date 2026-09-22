@@ -121,6 +121,79 @@ export async function run() {
     "Native case editor: persistent .in file, unsaved edit flushed before Judge, latest input reached stdin.",
   );
 
+  assert.equal(
+    vscode.window.tabGroups.all.length,
+    2,
+    "Editing a case does not create a third column",
+  );
+  const nextBinding = await store.import({
+    ...structuredClone(problem),
+    target: { kind: "problemset", problemId: "2" },
+  });
+  await api.open({ root, binding });
+  const sourceEditor = vscode.window.activeTextEditor!;
+  const sourceChange = new vscode.WorkspaceEdit();
+  sourceChange.insert(
+    sourceEditor.document.uri,
+    new vscode.Position(0, 0),
+    "// preserved across switching\n",
+  );
+  assert(await vscode.workspace.applyEdit(sourceChange));
+  // Simulate an extra source split left by an older version.
+  await vscode.window.showTextDocument(sourceEditor.document, {
+    viewColumn: vscode.ViewColumn.Three,
+    preview: false,
+  });
+  for (const selected of [nextBinding, binding, nextBinding, binding]) {
+    await api.open({ root, binding: selected });
+    assert.equal(
+      vscode.window.tabGroups.all.length,
+      2,
+      "Switching reuses exactly two columns",
+    );
+    const active = vscode.window.activeTextEditor!;
+    assert.equal(active.viewColumn, vscode.ViewColumn.Two);
+    assert.equal(
+      active.document.uri.fsPath,
+      path.join(root, selected.sourceFile),
+    );
+    const sourcePaths = new Set(
+      [binding.sourceFile, nextBinding.sourceFile].map((f) =>
+        path.join(root, f),
+      ),
+    );
+    const tabs = vscode.window.tabGroups.all
+      .flatMap((g) => g.tabs)
+      .filter(
+        (t) =>
+          t.input instanceof vscode.TabInputText &&
+          sourcePaths.has(t.input.uri.fsPath),
+      );
+    assert.equal(
+      tabs.length,
+      1,
+      "Only the selected problem source tab remains",
+    );
+  }
+  assert(
+    (await fs.readFile(path.join(root, binding.sourceFile), "utf8")).startsWith(
+      "// preserved across switching",
+    ),
+  );
+  assert(
+    vscode.window.tabGroups.all.some((g) =>
+      g.tabs.some(
+        (t) =>
+          t.input instanceof vscode.TabInputText &&
+          t.input.uri.toString() === unrelated.uri.toString(),
+      ),
+    ),
+    "Unrelated file survives problem switching",
+  );
+  console.log(
+    "Problem switching: one bound source tab, two groups, unsaved code saved and unrelated tabs retained.",
+  );
+
   if (process.env.ACCODING_PREVIEW_CONTEST) {
     let first: Session | undefined;
     for (const order of [9, 2, 8, 0, 6, 1, 5, 3, 7, 4]) {

@@ -539,7 +539,7 @@ function createCase() {
     hasExpectedOutput: true,
     enabled: true,
     revision: 0,
-    comparison: "exact",
+    comparison: "trim-line-end",
     locallyModified: false,
   };
   binding!.cases.push(c);
@@ -690,7 +690,7 @@ function renderTests() {
     select.setAttribute("aria-label", "输出比较模式");
     for (const [v, t] of [
       ["exact", "精确比较"],
-      ["trim-line-end", "忽略行尾空格"],
+      ["trim-line-end", "忽略行末空格与末尾换行（默认）"],
       ["tokens", "Token 比较"],
     ]) {
       const o = el("option", t);

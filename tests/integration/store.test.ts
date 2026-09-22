@@ -325,3 +325,35 @@ it("repairs cached output-only samples once while retaining code, edits and dele
     (await new WorkspaceStore(root).read(repaired.bindingId)).cases,
   ).toEqual([]);
 });
+it("migrates old strict cases once and preserves an explicit strict selection afterwards", async () => {
+  const b = await store.import(problem);
+  expect(b.cases[0].comparison).toBe("trim-line-end");
+  const file = path.join(
+    root,
+    ".better-accoding/bindings",
+    b.bindingId + ".json",
+  );
+  const legacy = { ...b, comparisonDefaultsVersion: undefined };
+  legacy.cases[0].comparison = "exact";
+  const outputBefore = await fs.readFile(
+    path.join(root, b.cases[0].expectedOutputFile!),
+  );
+  await fs.writeFile(file, JSON.stringify(legacy));
+  const reloaded = new WorkspaceStore(root);
+  let migrated = await reloaded.read(b.bindingId);
+  expect(migrated.comparisonDefaultsVersion).toBe(1);
+  expect(migrated.cases[0].comparison).toBe("trim-line-end");
+  expect(migrated.cases[0].revision).toBe(b.cases[0].revision + 1);
+  expect(
+    await fs.readFile(path.join(root, b.cases[0].expectedOutputFile!)),
+  ).toEqual(outputBefore);
+  migrated.cases[0].comparison = "exact";
+  migrated = await reloaded.saveCases(
+    migrated.bindingId,
+    migrated.revision,
+    migrated.cases,
+  );
+  expect(
+    (await new WorkspaceStore(root).read(b.bindingId)).cases[0].comparison,
+  ).toBe("exact");
+});

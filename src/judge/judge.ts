@@ -10,7 +10,8 @@ export function compare(actual: string, expected: string, mode: Comparison) {
       return s
         .split("\n")
         .map((l) => l.replace(/[ \t]+$/, ""))
-        .join("\n");
+        .join("\n")
+        .replace(/\n+$/, "");
     if (mode === "tokens") return s.match(/\S+/g)?.join("\n") ?? "";
     return s;
   };

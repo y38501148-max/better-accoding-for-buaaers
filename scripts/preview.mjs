@@ -34,7 +34,7 @@ const binding = {
       hasExpectedOutput: true,
       enabled: true,
       revision: 0,
-      comparison: "exact",
+      comparison: "trim-line-end",
       upstreamSampleKey: "sample-1",
       locallyModified: false,
       baseline: { input: "2\n1 2\n2 3\n", expected: "3\n5\n" },

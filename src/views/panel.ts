@@ -12,7 +12,6 @@ export class Workbench {
       timer: ReturnType<typeof setTimeout>;
     }
   >();
-  private codeColumn?: vscode.ViewColumn;
   private renderVersion = 0;
   private bindingReady = false;
   constructor(
@@ -20,14 +19,31 @@ export class Workbench {
     private onMessage: (message: unknown) => void,
     private onClose: () => void,
   ) {}
-  async open(source: vscode.Uri, restore = false) {
-    const applyLayout = !this.panel || restore;
+  async open(
+    source: vscode.Uri,
+    restore = false,
+    managedSources: vscode.Uri[] = [source],
+  ) {
+    const managed = new Set(managedSources.map((uri) => uri.toString()));
+    // Save only bound problem sources before replacing their editor tabs.
+    for (const document of vscode.workspace.textDocuments) {
+      if (
+        document.isDirty &&
+        managed.has(document.uri.toString()) &&
+        !(await document.save())
+      )
+        throw new Error("源码未能保存，已取消切题以保留编辑内容。");
+    }
+    const applyLayout =
+      !this.panel ||
+      restore ||
+      vscode.window.tabGroups.all.length !== 2 ||
+      this.panel.viewColumn !== vscode.ViewColumn.One;
     if (applyLayout) {
       await vscode.commands.executeCommand("vscode.setEditorLayout", {
         orientation: 0,
         groups: [{}, {}],
       });
-      this.codeColumn = vscode.ViewColumn.Two;
     }
     if (!this.panel) {
       this.panel = vscode.window.createWebviewPanel(
@@ -44,28 +60,22 @@ export class Workbench {
         },
       );
       this.initialize(this.panel);
-    } else
-      this.panel.reveal(
-        restore ? vscode.ViewColumn.One : this.panel.viewColumn,
-        true,
-      );
-    const existing = vscode.window.visibleTextEditors.find(
-      (e) =>
-        e.document.uri.toString() === source.toString() &&
-        e.viewColumn !== this.panel?.viewColumn,
-    );
-    const column =
-      existing?.viewColumn ??
-      (this.codeColumn !== this.panel.viewColumn
-        ? this.codeColumn
-        : undefined) ??
-      vscode.ViewColumn.Beside;
-    const editor = await vscode.window.showTextDocument(source, {
-      viewColumn: column,
+    } else this.panel.reveal(vscode.ViewColumn.One, true);
+    await vscode.window.showTextDocument(source, {
+      viewColumn: vscode.ViewColumn.Two,
       preview: false,
       preserveFocus: false,
     });
-    this.codeColumn = editor.viewColumn;
+    const stale = vscode.window.tabGroups.all.flatMap((group) =>
+      group.tabs.filter(
+        (tab) =>
+          tab.input instanceof vscode.TabInputText &&
+          managed.has(tab.input.uri.toString()) &&
+          (tab.input.uri.toString() !== source.toString() ||
+            group.viewColumn !== vscode.ViewColumn.Two),
+      ),
+    );
+    if (stale.length) await vscode.window.tabGroups.close(stale, true);
     if (applyLayout) {
       const layout = await vscode.commands.executeCommand<{
         groups: { size?: number }[];
@@ -82,6 +92,12 @@ export class Workbench {
         });
       }
     }
+  }
+  async openCaseFile(document: vscode.TextDocument) {
+    return vscode.window.showTextDocument(document, {
+      viewColumn: vscode.ViewColumn.Two,
+      preview: false,
+    });
   }
   restore(panel: vscode.WebviewPanel) {
     this.panel = panel;
