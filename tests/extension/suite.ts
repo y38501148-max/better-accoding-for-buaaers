@@ -113,7 +113,7 @@ export async function run() {
   await api.runTestCase(binding.cases[0].id);
   assert.equal((await store.read(binding.bindingId)).cases[0].input, "3 4\n");
   assert.equal(
-    api.getResult()?.cases[0].stdout,
+    api.getResult()?.cases[0].stdout.replace(/\r\n/g, "\n"),
     "7\n",
     "Immediate run used latest native-editor input",
   );

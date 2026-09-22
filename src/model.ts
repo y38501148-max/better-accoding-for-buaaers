@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { createHash } from "node:crypto";
 export const ORIGIN = "https://accoding.buaa.edu.cn";
+export const ADMIN_ORIGIN = "https://accoding.buaa.edu.cn:4000";
 export const idSchema = z
   .union([z.string().regex(/^\d+$/), z.number().int().nonnegative().safe()])
   .transform(String);
@@ -97,13 +98,19 @@ export function parseImport(
   } catch {
     throw new Error("请输入非负整数题号/比赛 ID，或完整 Accoding 链接。");
   }
-  if (url.origin !== ORIGIN || url.username || url.password)
-    throw new Error("仅接受 Accoding 学生端 HTTPS 链接。");
+  if (
+    ![ORIGIN, ADMIN_ORIGIN].includes(url.origin) ||
+    url.username ||
+    url.password
+  )
+    throw new Error("仅接受 Accoding 学生端或 4000 管理端 HTTPS 链接。");
   const p = url.pathname.match(/^\/problem\/(\d+)(?:\/index)?\/?$/);
   const c =
     url.pathname === "/contest-ng/index.html"
       ? url.hash.match(/^#\/(\d+)(?:\/.*)?$/)
-      : null;
+      : url.pathname.match(
+          /^\/contest\/(\d+)(?:\/index|\/problem|\/edit)?\/?$/,
+        );
   if (p) return { kind: "problemset", id: BigInt(p[1]).toString() };
   if (c) return { kind: "contest", id: BigInt(c[1]).toString() };
   throw new Error("无法识别题目或比赛链接；比赛内字母不能单独作为题号。");

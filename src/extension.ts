@@ -1,4 +1,5 @@
 import * as vscode from "vscode";
+import { fetchContestForImport } from "./accoding/import";
 import * as fs from "node:fs/promises";
 import path from "node:path";
 import os from "node:os";
@@ -346,7 +347,9 @@ export async function activate(context: vscode.ExtensionContext) {
     const problems =
       target.kind === "problemset"
         ? [await new ProblemsetAdapter(client).fetch(target.id)]
-        : await new ContestAdapter(client).fetch(target.id);
+        : await fetchContestForImport(client, target.id, (message) =>
+            output.appendLine(message),
+          );
     const picked =
       target.kind === "problemset"
         ? problems
@@ -752,7 +755,11 @@ export async function activate(context: vscode.ExtensionContext) {
         await new ProblemsetAdapter(client).fetch(t.problemId),
       );
     } else {
-      const problems = await new ContestAdapter(client).fetch(t.contestId);
+      const problems = await fetchContestForImport(
+        client,
+        t.contestId,
+        (message) => output.appendLine(message),
+      );
       for (const b of await store(s.root).list()) {
         if (
           b.problem.target.kind !== "contest" ||

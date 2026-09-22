@@ -4,8 +4,14 @@ import { AccodingClient, ApiError } from "./client";
 import { ORIGIN, idSchema, type Problem, type Target } from "../model";
 import { cleanHtml, extractSamples } from "../problems/statement";
 const userSchema = z.object({ id: idSchema, nickname: z.string().optional() });
-export async function currentUser(client: AccodingClient) {
-  const result = userSchema.safeParse(await client.json("/api/users/me"));
+type ReadOptions = { retries?: number; timeoutMs?: number };
+export async function currentUser(
+  client: AccodingClient,
+  options?: ReadOptions,
+) {
+  const result = userSchema.safeParse(
+    await client.json("/api/users/me", options),
+  );
   if (!result.success || result.data.id === "0")
     throw new ApiError("auth", "请先登录 Accoding。");
   return result.data;
@@ -58,10 +64,10 @@ const settingsSchema = z.object({
 });
 export class ContestAdapter {
   constructor(private client: AccodingClient) {}
-  async fetch(id: string): Promise<Problem[]> {
+  async fetch(id: string, options?: ReadOptions): Promise<Problem[]> {
     id = idSchema.parse(id);
     const parsed = contestSchema.safeParse(
-      await this.client.json(`/api/contests/${id}`),
+      await this.client.json(`/api/contests/${id}`, options),
     );
     if (!parsed.success || parsed.data.id !== id)
       throw new ApiError("protocol", "比赛数据缺失、无权限或接口结构变化。");
@@ -91,7 +97,7 @@ export class ContestAdapter {
         statement: {
           format: "markdown",
           content: p.description,
-          baseUrl: `${ORIGIN}/contest-ng/index.html`,
+          baseUrl: `${this.client.origin}/contest-ng/index.html`,
         },
         languages: s.supported_languages
           .split(",")

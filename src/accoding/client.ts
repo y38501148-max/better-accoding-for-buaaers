@@ -1,6 +1,6 @@
 import { CookieJar } from "tough-cookie";
 import { setTimeout as delay } from "node:timers/promises";
-import { ORIGIN } from "../model";
+import { ADMIN_ORIGIN, ORIGIN } from "../model";
 export class ApiError extends Error {
   constructor(
     public readonly kind:
@@ -25,10 +25,22 @@ export interface Reply {
 export type Transport = (url: string, init: RequestInit) => Promise<Response>;
 export class AccodingClient {
   private controller = new AbortController();
+  private baseOrigin: typeof ORIGIN | typeof ADMIN_ORIGIN = ORIGIN;
+  get origin() {
+    return this.baseOrigin;
+  }
   constructor(
     public jar = new CookieJar(),
     private transport: Transport = fetch,
   ) {}
+  /** Cookies are scoped to the same trusted host, not its port. Isolate any
+   * admin Set-Cookie changes so probing cannot replace the student session. */
+  adminReader() {
+    const reader = new AccodingClient(this.jar.cloneSync(), this.transport);
+    reader.baseOrigin = ADMIN_ORIGIN;
+    reader.controller = this.controller;
+    return reader;
+  }
   cancel() {
     this.controller.abort();
     this.controller = new AbortController();
@@ -40,9 +52,13 @@ export class AccodingClient {
       body?: string;
       contentType?: string;
       signal?: AbortSignal;
+      timeoutMs?: number;
+      retries?: number;
     } = {},
   ): Promise<Reply> {
     const method = options.method ?? "GET";
+    if (this.origin === ADMIN_ORIGIN && method !== "GET")
+      throw new ApiError("forbidden", "管理端连接仅用于读取题目。");
     options = {
       ...options,
       signal: AbortSignal.any([
@@ -56,7 +72,7 @@ export class AccodingClient {
       } catch (e) {
         if (
           method === "POST" ||
-          attempt >= 2 ||
+          attempt >= (options.retries ?? 2) ||
           options.signal?.aborted ||
           !(e instanceof ApiError) ||
           !["network", "rate", "server"].includes(e.kind)
@@ -73,18 +89,20 @@ export class AccodingClient {
       body?: string;
       contentType?: string;
       signal?: AbortSignal;
+      timeoutMs?: number;
+      retries?: number;
     },
   ): Promise<Reply> {
-    let url = new URL(path, ORIGIN);
+    let url = new URL(path, this.origin);
     let method = options.method,
       body = options.body;
     const signal = AbortSignal.any([
       this.controller.signal,
       options.signal ?? new AbortController().signal,
-      AbortSignal.timeout(15000),
+      AbortSignal.timeout(options.timeoutMs ?? 15000),
     ]);
     for (let redirects = 0; redirects <= 6; redirects++) {
-      if (url.origin !== ORIGIN || url.username || url.password)
+      if (url.origin !== this.origin || url.username || url.password)
         throw new ApiError("protocol", "已阻止跨域重定向。");
       const headers: Record<string, string> = {
         Accept: "application/json, text/html;q=0.9",
@@ -93,7 +111,7 @@ export class AccodingClient {
       if (method === "POST") {
         headers["Content-Type"] =
           options.contentType ?? "application/x-www-form-urlencoded";
-        headers.Origin = ORIGIN;
+        headers.Origin = this.origin;
         headers.Referer = url.href;
       }
       let response: Response;
@@ -139,7 +157,12 @@ export class AccodingClient {
         );
       if (response.status === 429) {
         const seconds = Number(response.headers.get("retry-after"));
-        if (options.method === "GET" && Number.isFinite(seconds) && seconds > 0)
+        if (
+          options.method === "GET" &&
+          options.retries !== 0 &&
+          Number.isFinite(seconds) &&
+          seconds > 0
+        )
           await delay(Math.min(seconds, 30) * 1000, undefined, { signal });
         throw new ApiError("rate", "请求过于频繁，请稍后重试。");
       }
@@ -155,7 +178,19 @@ export class AccodingClient {
           "protocol",
           `请求被拒绝（HTTP ${response.status}）。`,
         );
-      const buffer = await readLimited(response, 8 * 1024 * 1024);
+      let buffer: string;
+      try {
+        buffer = await readLimited(response, 8 * 1024 * 1024);
+      } catch (e) {
+        if (options.signal?.aborted) throw new Error("操作已取消。");
+        if (e instanceof ApiError) throw e;
+        throw new ApiError(
+          options.method === "POST" ? "unknown" : "network",
+          options.method === "POST"
+            ? "提交响应读取中断，请先查询记录，勿直接重发。"
+            : "网络响应读取失败或超时。",
+        );
+      }
       return {
         status: response.status,
         url: url.href,

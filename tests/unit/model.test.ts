@@ -24,6 +24,12 @@ describe("source identity", () => {
   });
   it("parses exact links", () => {
     expect(
+      parseImport("https://accoding.buaa.edu.cn:4000/contest/1306/index"),
+    ).toEqual({ kind: "contest", id: "1306" });
+    expect(() =>
+      parseImport("https://accoding.buaa.edu.cn:4001/contest/1306"),
+    ).toThrow();
+    expect(
       parseImport("https://accoding.buaa.edu.cn/contest-ng/index.html#/1306"),
     ).toEqual({ kind: "contest", id: "1306" });
     expect(
