@@ -4,11 +4,12 @@ import {
   runTests,
 } from "@vscode/test-electron";
 import { execFileSync } from "node:child_process";
-import { mkdtemp, mkdir, readdir, writeFile } from "node:fs/promises";
+import { mkdtemp, mkdir, readdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import os from "node:os";
 import { build } from "esbuild";
 const root = process.cwd();
+const manifest = JSON.parse(await readFile("package.json", "utf8"));
 const profile = await mkdtemp(path.join(os.tmpdir(), "accoding-vsix-"));
 const extensions = path.join(profile, "extensions");
 const user = path.join(profile, "user");
@@ -26,7 +27,8 @@ execFileSync(
     "--extensions-dir",
     extensions,
     "--install-extension",
-    path.join(root, "release/better-accoding-for-buaaers-0.1.0.vsix"),
+    process.env.ACCODING_INSTALL_SOURCE ??
+      path.join(root, `release/${manifest.name}-${manifest.version}.vsix`),
   ],
   { stdio: "inherit", shell: process.platform === "win32" },
 );
@@ -58,5 +60,5 @@ await runTests({
   ],
 });
 console.log(
-  "Clean profile installed VSIX and activated its bundled code successfully.",
+  "Clean profile installed extension and activated its bundled code successfully.",
 );

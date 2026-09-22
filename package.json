@@ -2,7 +2,7 @@
   "name": "better-accoding-for-buaaers",
   "displayName": "Better Accoding For BUAAers",
   "description": "面向北航 Accoding 的非官方 VS Code 助手：左题右码、可编辑用例与本地评测。",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "publisher": "muzermat",
   "private": true,
   "license": "MIT",
@@ -59,7 +59,8 @@
       {
         "command": "betterAccoding.login",
         "title": "登录 Accoding",
-        "category": "Accoding"
+        "category": "Accoding",
+        "icon": "$(account)"
       },
       {
         "command": "betterAccoding.logout",
@@ -292,6 +293,11 @@
     "menus": {
       "view/title": [
         {
+          "command": "betterAccoding.login",
+          "when": "view == betterAccoding.problems",
+          "group": "navigation@0"
+        },
+        {
           "command": "betterAccoding.importProblem",
           "when": "view == betterAccoding.problems",
           "group": "navigation"
@@ -311,7 +317,7 @@
     "viewsWelcome": [
       {
         "view": "betterAccoding.problems",
-        "contents": "在 Accoding 做题，代码留在原生编辑器。\n[导入题目](command:betterAccoding.importProblem)\n[导入比赛](command:betterAccoding.importContest)\n[粘贴题目链接](command:betterAccoding.importFromUrl)"
+        "contents": "登录 Accoding 后导入题目，代码留在原生编辑器。\n[登录 Accoding](command:betterAccoding.login)\n[导入题目](command:betterAccoding.importProblem)\n[导入比赛](command:betterAccoding.importContest)\n[粘贴题目链接](command:betterAccoding.importFromUrl)"
       }
     ]
   },

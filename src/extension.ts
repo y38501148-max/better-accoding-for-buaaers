@@ -1232,9 +1232,13 @@ export async function activate(context: vscode.ExtensionContext) {
         });
       else if (
         m.type === "command" &&
-        ["importFromUrl", "importMenu", "selectProblem", "settings"].includes(
-          m.command,
-        )
+        [
+          "importFromUrl",
+          "importMenu",
+          "selectProblem",
+          "settings",
+          "login",
+        ].includes(m.command)
       )
         await execute(m.command);
       return;

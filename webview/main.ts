@@ -60,7 +60,7 @@ app.innerHTML = `
     ${navButton("refresh", "syncProblem", "同步", "更新题面，保留本地修改")}
     ${navButton("stop", "cancelRun", "停止", "停止运行与查询；不会撤回已发送的提交")}
   </div>
-  <div class="rail-bottom">${navButton("settings", "settings", "设置", "设置与账号")}</div>
+  <div class="rail-bottom">${navButton("account", "login", "登录", "登录 Accoding / 切换账号")}${navButton("settings", "settings", "设置", "设置与账号")}</div>
 </nav>
 <main>
   <header class="problem-header">
@@ -376,7 +376,9 @@ function render() {
   for (const b of app.querySelectorAll<HTMLButtonElement>("nav button"))
     b.disabled =
       !binding &&
-      !["importMenu", "selectProblem", "settings"].includes(b.dataset.action!);
+      !["importMenu", "selectProblem", "settings", "login"].includes(
+        b.dataset.action!,
+      );
   if (!binding) {
     content.replaceChildren(
       el("p", "从操作栏“导入”添加题目，或从“题单”打开已缓存的题目。"),

@@ -12,3 +12,5 @@
 2026-09-22 本机 macOS arm64：最低 1.96.4 和 Stable 1.138.0 宿主测试通过；独立用户/扩展目录安装 VSIX 并激活包内 dist 通过（`npm run test:package`）。
 
 `npm run test:debug` 在 macOS 的独立扩展目录安装固定版本 CodeLLDB 1.12.3，真实断点验证选定输入、变量值、继续运行输出和会话结束，2026-09-22 已通过。不会使用或修改日常 VS Code 配置。
+
+商店安装验收：发布校验完成后运行 `ACCODING_INSTALL_SOURCE=muzermat.better-accoding-for-buaaers npm run test:package`，使用独立用户/扩展目录从 Marketplace 获取扩展并验证激活、布局与原生用例运行。默认不设置该环境变量时验证本地 VSIX。

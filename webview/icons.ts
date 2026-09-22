@@ -1,4 +1,6 @@
 const paths = {
+  account:
+    '<circle cx="10" cy="6" r="3"/><path d="M3 18v-2a7 7 0 0 1 14 0v2"/>',
   code: '<path d="m6 5-4 5 4 5m8-10 4 5-4 5m-3-12-2 14"/>',
   play: '<path d="m7 4 9 6-9 6V4Z"/>',
   send: '<path d="m3 9 14-6-6 14-2-6-6-2Zm6 2 8-8"/>',
