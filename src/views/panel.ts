@@ -14,6 +14,7 @@ export class Workbench {
   >();
   private codeColumn?: vscode.ViewColumn;
   private renderVersion = 0;
+  private bindingReady = false;
   constructor(
     private context: vscode.ExtensionContext,
     private onMessage: (message: unknown) => void,
@@ -94,6 +95,7 @@ export class Workbench {
     this.initialize(panel);
   }
   private initialize(p: vscode.WebviewPanel) {
+    this.bindingReady = false;
     const nonce = randomBytes(18).toString("hex");
     const resource = (name: string) =>
       p.webview.asWebviewUri(
@@ -101,6 +103,18 @@ export class Workbench {
       );
     p.webview.html = `<!DOCTYPE html><html lang="zh-CN"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src ${p.webview.cspSource}; font-src ${p.webview.cspSource}; style-src ${p.webview.cspSource} 'unsafe-inline'; script-src 'nonce-${nonce}';"><link rel="stylesheet" href="${resource("webview.css")}"><link rel="stylesheet" href="${resource("katex/katex.min.css")}"></head><body><div id="app"></div><script nonce="${nonce}" src="${resource("webview.js")}"></script></body></html>`;
     p.webview.onDidReceiveMessage((m: unknown) => {
+      if (p !== this.panel) return;
+      if (typeof m === "object" && m !== null && "type" in m) {
+        if (m.type === "ready") this.bindingReady = false;
+        if (m.type === "bindingReady") {
+          if ("renderVersion" in m && m.renderVersion === this.renderVersion) {
+            this.bindingReady = true;
+            for (const requestId of this.pending.keys())
+              this.post({ type: "flush", requestId });
+          }
+          return;
+        }
+      }
       if (
         typeof m === "object" &&
         m !== null &&
@@ -139,6 +153,7 @@ export class Workbench {
     const panel = this.panel;
     if (!panel) return;
     const version = ++this.renderVersion;
+    this.bindingReady = false;
     const html = await localStatementHtml(binding.problem, root, (file) =>
       panel.webview.asWebviewUri(vscode.Uri.file(file)).toString(),
     );
@@ -151,7 +166,7 @@ export class Workbench {
         vscode.Uri.joinPath(vscode.Uri.file(root), IMAGE_DIRECTORY),
       ],
     };
-    this.post({ type: "binding", binding, root, html });
+    this.post({ type: "binding", binding, root, html, renderVersion: version });
   }
   async flush() {
     if (!this.panel) return;
@@ -162,7 +177,7 @@ export class Workbench {
         reject(new Error("未收到用例保存确认，已取消操作以保护草稿。"));
       }, 15000);
       this.pending.set(requestId, { resolve, reject, timer });
-      this.post({ type: "flush", requestId });
+      if (this.bindingReady) this.post({ type: "flush", requestId });
     });
   }
 }

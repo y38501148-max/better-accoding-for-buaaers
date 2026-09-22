@@ -6,6 +6,8 @@ import path from "node:path";
 import { WorkspaceStore, newCase, safePath } from "../../src/workspace/store";
 import { problem } from "../fixtures/synthetic";
 import * as disk from "../../src/workspace/fs";
+// Filesystem transactions and process startup can exceed 5 s on shared Windows runners.
+vi.setConfig({ testTimeout: 20000, hookTimeout: 20000 });
 let root: string, store: WorkspaceStore;
 beforeEach(async () => {
   root = await fs.mkdtemp(path.join(os.tmpdir(), "accoding-store-"));

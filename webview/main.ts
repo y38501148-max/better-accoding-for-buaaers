@@ -811,6 +811,7 @@ window.addEventListener("message", (event) => {
       }
     }
     render();
+    api.postMessage({ type: "bindingReady", renderVersion: m.renderVersion });
   } else if (m.type === "saved" && m.requestId === saveRequestId)
     resolveSave?.(m);
   else if (m.type === "saveError" && m.requestId === saveRequestId) {
