@@ -28,7 +28,10 @@ it("compiles immutable C snapshot and closes stdin for EOF", async () => {
     '#include <stdio.h>\n#include "numbers.h"\nint main(){int n,s=INITIAL_SUM;while(scanf("%d",&n)==1)s+=n;printf("%d\\n",s);}',
   );
   const c = { ...newCase(), input: "1 2 3", expected: "6\n" };
-  const r = await judge(source, dir, [c], tc);
+  const r = await judge(source, dir, [c], {
+    ...tc,
+    cArgs: [...tc.cArgs, "-include", "numbers.h"],
+  });
   expect(r.compilation.exitCode, r.compilation.stderr).toBe(0);
   expect(r.cases[0].status).toBe("PASS");
 });

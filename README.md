@@ -31,7 +31,7 @@ npm run test:extension
 
 ## 离线与数据
 
-缓存题面、源码与用例可离线使用。当前事务存储位于工作区 `.better-accoding/bindings`，源码位于 `problems` / `contests`；请连同源码一起备份。同步保护源码、本地修改样例、自定义用例和已删除样例。保存冲突时保留草稿，可复制后恢复。
+缓存题面、源码与用例可离线使用。用例保存为题目目录中的 `.in/.out` 文件，卡片标题旁的文件按钮可直接打开编辑。事务元数据位于 `.better-accoding/bindings`，源码与题面位于 `problems` / `contests`；请一起备份。同步保护源码、本地修改样例、自定义用例和已删除样例。保存冲突时保留草稿，可选择版本或复制；源码、配置和用例变化会把旧评测结果标为过期。详见 [本地数据与冲突处理](docs/storage.md)。
 
 [环境配置](docs/environment.md) · [测试与验收](docs/testing.md) · [隐私](PRIVACY.md) · [安全反馈](SECURITY.md) · [发布流程](docs/release.md)
 

@@ -23,6 +23,7 @@ import {
 } from "./model";
 import {
   WorkspaceStore,
+  ConflictError,
   safePath,
   atomicWrite,
   newCase,
@@ -200,6 +201,22 @@ export async function activate(context: vscode.ExtensionContext) {
   }
   async function refreshActive() {
     const s = requireActive();
+    const files = new Set(
+      s.binding.cases
+        .flatMap((c) =>
+          [c.inputFile, c.expectedOutputFile].filter((x): x is string => !!x),
+        )
+        .map((file) => path.resolve(s.root, file)),
+    );
+    for (const document of vscode.workspace.textDocuments) {
+      if (
+        document.uri.scheme === "file" &&
+        document.isDirty &&
+        files.has(document.uri.fsPath) &&
+        !(await document.save())
+      )
+        throw new Error("用例文件未能保存，已取消操作以保留草稿。");
+    }
     s.binding = await store(s.root).read(s.binding.bindingId);
     return s;
   }
@@ -435,6 +452,14 @@ export async function activate(context: vscode.ExtensionContext) {
         root: s.root,
         bindingId: s.binding.bindingId,
         result: r,
+        sourceStale:
+          hash(
+            vscode.workspace.textDocuments
+              .find((d) => d.uri.fsPath === source)
+              ?.getText() ?? (await fs.readFile(source, "utf8")),
+          ) !== r.sourceHash,
+        configurationStale:
+          hash(JSON.stringify(toolchain())) !== r.toolchainConfigHash,
       });
       const ds: vscode.Diagnostic[] = [];
       for (const line of r.compilation.stderr.split("\n")) {
@@ -976,16 +1001,23 @@ export async function activate(context: vscode.ExtensionContext) {
       case "editInput":
       case "editExpected": {
         await workbench.flush();
+        const s = await refreshActive();
         const c = await chooseCase(caseId);
         if (!c) return;
-        const doc = await vscode.workspace.openTextDocument({
-          content: command === "editInput" ? c.input : c.expected,
-          language: "plaintext",
-        });
-        await vscode.window.showTextDocument(doc, vscode.ViewColumn.Beside);
-        void vscode.window.showInformationMessage(
-          "此处为用例副本；保存为 .in/.out 后用“导入用例”载入。",
+        if (command === "editExpected" && !c.hasExpectedOutput)
+          throw new Error("请先启用校验输出，再编辑预期输出文件。");
+        const file = await store(s.root).caseUriPath(
+          s.binding.bindingId,
+          c.id,
+          command === "editInput" ? "input" : "expected",
         );
+        const doc = await vscode.workspace.openTextDocument(
+          vscode.Uri.file(file),
+        );
+        await vscode.window.showTextDocument(doc, {
+          viewColumn: vscode.ViewColumn.Beside,
+          preview: false,
+        });
         return;
       }
       case "openOnWebsite":
@@ -1110,6 +1142,12 @@ export async function activate(context: vscode.ExtensionContext) {
           type: "saveError",
           requestId: m.requestId,
           message: e instanceof Error ? e.message : "保存失败",
+          conflict:
+            e instanceof ConflictError
+              ? await store(m.root)
+                  .read(m.bindingId)
+                  .catch(() => undefined)
+              : undefined,
         });
       }
       return;
@@ -1122,6 +1160,81 @@ export async function activate(context: vscode.ExtensionContext) {
         Promise.resolve(execute(name, undefined, arg)).catch(error),
       ),
     );
+  context.subscriptions.push(
+    vscode.workspace.onDidChangeTextDocument((event) => {
+      const s = active;
+      if (
+        !s ||
+        event.document.uri.scheme !== "file" ||
+        event.document.uri.fsPath !== path.resolve(s.root, s.binding.sourceFile)
+      )
+        return;
+      const result = results.get(sessionKey(s));
+      if (result)
+        workbench.post({
+          type: "resultState",
+          root: s.root,
+          bindingId: s.binding.bindingId,
+          sourceStale: hash(event.document.getText()) !== result.sourceHash,
+        });
+    }),
+    vscode.workspace.onDidChangeConfiguration((event) => {
+      const s = active;
+      if (!s || !event.affectsConfiguration("betterAccoding")) return;
+      const result = results.get(sessionKey(s));
+      if (result)
+        workbench.post({
+          type: "resultState",
+          root: s.root,
+          bindingId: s.binding.bindingId,
+          configurationStale:
+            hash(JSON.stringify(toolchain())) !== result.toolchainConfigHash,
+        });
+    }),
+  );
+  async function externalCaseChanged(uri: vscode.Uri) {
+    const s = active;
+    if (!s || uri.scheme !== "file") return;
+    const tracked = s.binding.cases.some((c) =>
+      [c.inputFile, c.expectedOutputFile].some(
+        (file) => file && path.resolve(s.root, file) === uri.fsPath,
+      ),
+    );
+    if (!tracked) return;
+    try {
+      const binding = await store(s.root).read(s.binding.bindingId);
+      if (active !== s || binding.revision <= s.binding.revision) return;
+      s.binding = binding;
+      workbench.post({
+        type: "externalCases",
+        root: s.root,
+        bindingId: binding.bindingId,
+        binding,
+      });
+    } catch (e) {
+      if (active === s) error(e);
+    }
+  }
+  context.subscriptions.push(
+    vscode.workspace.onDidSaveTextDocument((document) => {
+      void externalCaseChanged(document.uri);
+    }),
+  );
+  for (const folder of vscode.workspace.workspaceFolders ?? []) {
+    if (folder.uri.scheme !== "file") continue;
+    const watcher = vscode.workspace.createFileSystemWatcher(
+      new vscode.RelativePattern(folder, "**/tests/*.{in,out}"),
+    );
+    context.subscriptions.push(
+      watcher,
+      watcher.onDidChange((uri) => {
+        void externalCaseChanged(uri);
+      }),
+      watcher.onDidCreate((uri) => {
+        void externalCaseChanged(uri);
+      }),
+    );
+  }
   context.subscriptions.push(
     vscode.workspace.onDidRenameFiles(async (event) => {
       for (const f of vscode.workspace.workspaceFolders ?? []) {
@@ -1223,6 +1336,9 @@ export async function activate(context: vscode.ExtensionContext) {
     open: show,
     getActive: () => active,
     debugTestCase: debug,
+    runTestCase: run,
+    editTestCaseInput: (id: string) => execute("editInput", id),
+    getResult: () => (active ? results.get(sessionKey(active)) : undefined),
   };
 }
 export function deactivate() {}

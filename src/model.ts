@@ -37,6 +37,8 @@ export const caseSchema = z.object({
   id: z.string().regex(/^[a-zA-Z0-9-]+$/),
   name: z.string().max(200),
   source: z.enum(["sample", "custom", "imported"]),
+  inputFile: z.string().optional(),
+  expectedOutputFile: z.string().optional(),
   input: z.string().max(4 * 1024 * 1024),
   expected: z.string().max(4 * 1024 * 1024),
   hasExpectedOutput: z.boolean(),
@@ -59,6 +61,7 @@ export interface Binding {
   cases: TestCase[];
   tombstones: string[];
   deletedCases?: TestCase[];
+  fileHashes?: Record<string, string>;
 }
 export interface Session {
   root: string;

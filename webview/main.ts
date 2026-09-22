@@ -31,6 +31,9 @@ let resolveSave:
   rejectSave: ((e: Error) => void) | undefined;
 let saveRequestId: string | undefined;
 let deleted: TestCase[] = [];
+let conflict: Binding | undefined;
+let sourceStale = false,
+  configurationStale = false;
 let debounce: ReturnType<typeof setTimeout> | undefined;
 const app = document.querySelector<HTMLDivElement>("#app")!;
 const navButton = (
@@ -68,6 +71,7 @@ app.innerHTML = `
       <button data-tab="submissions" role="tab">${icon("history")}<span>提交记录</span></button>
     </div>
   </header>
+  <aside id="conflict" aria-live="polite" hidden></aside>
   <section id="content"></section>
   <footer>
     <div class="footer-main"><span id="summary">准备就绪</span><button data-action="selectSubmissionLanguage" id="language" title="选择 OJ 提交语言">选择语言 ${icon("chevron")}</button></div>
@@ -139,7 +143,95 @@ function state() {
       dirty,
     });
 }
+function renderConflict() {
+  const banner = app.querySelector<HTMLElement>("#conflict")!;
+  banner.hidden = !conflict;
+  if (!conflict) {
+    banner.replaceChildren();
+    return;
+  }
+  const saved = conflict;
+  const title = el(
+    "p",
+    "用例已在其他窗口或文件中修改。卡片草稿已保留，请选择要继续使用的版本。",
+  );
+  const controls = el("div");
+  const load = button("使用已保存版本", () => {
+    if (!binding || saving) return;
+    binding.cases = structuredClone(saved.cases);
+    binding.revision = saved.revision;
+    conflict = undefined;
+    dirty = false;
+    saveError = "";
+    state();
+    render();
+  });
+  const overwrite = button("用草稿覆盖", () => {
+    if (!binding || saving) return;
+    binding.revision = saved.revision;
+    conflict = undefined;
+    edit();
+    void flush()
+      .then(() => render())
+      .catch(() => {});
+  });
+  load.disabled = !!saving;
+  overwrite.disabled = !!saving;
+  controls.append(
+    load,
+    overwrite,
+    button("复制草稿", () =>
+      api.postMessage({
+        type: "copyDraft",
+        text: JSON.stringify(binding?.cases, null, 2),
+      }),
+    ),
+  );
+  banner.replaceChildren(title, controls);
+}
+function refreshResultState() {
+  if (!binding || !result) return;
+  const isStale = (c: TestCase, revision: number) =>
+    sourceStale || configurationStale || dirty || c.revision !== revision;
+  for (const card of content.querySelectorAll<HTMLElement>(".case")) {
+    const c = binding.cases.find((c) => c.id === card.dataset.case);
+    const r = result.cases.find((r) => r.id === card.dataset.case);
+    if (!c || !r) continue;
+    let verdict = card.querySelector<HTMLElement>(".case-verdict");
+    if (!verdict) {
+      verdict = el("div");
+      verdict.className = "case-verdict";
+      card.append(verdict);
+    }
+    const stale = isStale(c, r.revision);
+    verdict.dataset.status = stale ? "stale" : r.status;
+    verdict.textContent = `${r.status}${stale ? " · 已过期" : ""}   ${r.elapsedMs} ms · 本机`;
+  }
+  const enabled = binding.cases.filter((c) => c.enabled);
+  const evaluated = enabled.flatMap((c) => {
+    const r = result!.cases.find((r) => r.id === c.id);
+    return r ? [{ c, r }] : [];
+  });
+  const stale = evaluated.some(({ c, r }) => isStale(c, r.revision));
+  const checked = evaluated.filter(({ c }) => c.hasExpectedOutput);
+  document.querySelector("#summary")!.textContent = stale
+    ? "结果已过期 · 请重新运行"
+    : `本地通过 ${checked.filter(({ r }) => r.status === "PASS").length}/${checked.length}${evaluated.length > checked.length ? ` · ${evaluated.length - checked.length} 例仅运行` : ""}`;
+}
 function status() {
+  for (const card of content.querySelectorAll<HTMLElement>(".case")) {
+    const c = binding?.cases.find((c) => c.id === card.dataset.case);
+    const badge = card.querySelector(".case-head > span:last-child");
+    if (c && badge)
+      badge.textContent =
+        c.source === "sample"
+          ? `官方样例${c.baseline && (c.input !== c.baseline.input || c.expected !== c.baseline.expected) ? " · 已本地修改" : ""}`
+          : c.source === "imported"
+            ? "文件导入"
+            : "自定义";
+  }
+  renderConflict();
+  refreshResultState();
   document.querySelector("#save")!.textContent = saveError
     ? `保存失败：${saveError}`
     : saving
@@ -172,6 +264,7 @@ async function flush(): Promise<void> {
     return;
   }
   if (!binding || !dirty) return;
+  if (conflict) throw new Error("请先选择要使用的用例版本。");
   const generation = serial;
   const snapshot = structuredClone(binding.cases);
   saveRequestId = crypto.randomUUID();
@@ -231,6 +324,8 @@ async function flush(): Promise<void> {
 }
 async function action(command: string, caseId?: string) {
   try {
+    if (conflict && command !== "cancelRun")
+      throw new Error("请先解决用例冲突。");
     if (command !== "cancelRun") await flush();
     if (command === "judge" || command === "runTestCase") tab = "tests";
     api.postMessage({
@@ -489,6 +584,15 @@ function renderTests() {
       label.className = "io-field";
       const caption = el("span", key === "input" ? "输入" : "预期输出");
       caption.className = "field-caption";
+      caption.append(
+        iconButton(
+          "file",
+          "在原生编辑器中编辑",
+          () =>
+            void action(key === "input" ? "editInput" : "editExpected", c.id),
+          true,
+        ),
+      );
       label.append(caption);
       const area = el("textarea");
       area.spellcheck = false;
@@ -592,7 +696,8 @@ function renderTests() {
     card.append(actions);
     const r = result?.cases.find((x) => x.id === c.id);
     if (r) {
-      const stale = dirty || c.revision !== r.revision;
+      const stale =
+        sourceStale || configurationStale || dirty || c.revision !== r.revision;
       const verdict = el("div");
       verdict.className = "case-verdict";
       verdict.dataset.status = stale ? "stale" : r.status;
@@ -649,8 +754,11 @@ window.addEventListener("message", (event) => {
     root = m.root;
     html = m.html;
     result = undefined;
+    sourceStale = false;
+    configurationStale = false;
     submissions = [];
     deleted = [];
+    conflict = undefined;
     dirty = false;
     saveError = "";
     if (
@@ -658,9 +766,11 @@ window.addEventListener("message", (event) => {
       saved.bindingId === binding!.bindingId &&
       saved.root === root
     ) {
+      const diskBinding = structuredClone(binding!);
       binding!.cases = saved.cases;
       dirty = true;
       if (saved.revision !== binding!.revision) {
+        conflict = diskBinding;
         binding!.revision = saved.revision;
         saveError = "恢复草稿与磁盘版本冲突，请复制草稿后重新载入。";
       }
@@ -668,9 +778,23 @@ window.addEventListener("message", (event) => {
     render();
   } else if (m.type === "saved" && m.requestId === saveRequestId)
     resolveSave?.(m);
-  else if (m.type === "saveError" && m.requestId === saveRequestId)
+  else if (m.type === "saveError" && m.requestId === saveRequestId) {
+    if (m.conflict) conflict = m.conflict;
     rejectSave?.(new Error(m.message));
-  else if (m.type === "flush")
+  } else if (
+    m.type === "externalCases" &&
+    m.bindingId === binding?.bindingId &&
+    m.root === root
+  ) {
+    if (dirty || saving) {
+      conflict = m.binding;
+      saveError = "发现外部修改，请选择要使用的版本。";
+      status();
+    } else {
+      binding = m.binding;
+      render();
+    }
+  } else if (m.type === "flush")
     void flush().then(
       () => api.postMessage({ type: "flushed", requestId: m.requestId }),
       (e) =>
@@ -686,11 +810,23 @@ window.addEventListener("message", (event) => {
     m.root === root
   ) {
     result = m.result;
+    sourceStale = !!m.sourceStale;
+    configurationStale = !!m.configurationStale;
     tab = "tests";
     const pass = result!.cases.filter((x) => x.status === "PASS").length;
     document.querySelector("#summary")!.textContent =
       `样例通过 ${pass}/${result!.cases.length}（本机测量）`;
     if (!dirty && !saving) render();
+    else refreshResultState();
+  } else if (
+    m.type === "resultState" &&
+    m.bindingId === binding?.bindingId &&
+    m.root === root
+  ) {
+    if (typeof m.sourceStale === "boolean") sourceStale = m.sourceStale;
+    if (typeof m.configurationStale === "boolean")
+      configurationStale = m.configurationStale;
+    refreshResultState();
   } else if (
     m.type === "submissions" &&
     m.bindingId === binding?.bindingId &&

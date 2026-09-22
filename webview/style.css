@@ -757,3 +757,39 @@ summary {
     flex-wrap: nowrap;
   }
 }
+main {
+  grid-template-rows: auto auto minmax(0, 1fr) auto;
+}
+#conflict {
+  padding: 8px 14px;
+  border-bottom: 1px solid var(--vscode-editorWarning-foreground, #cca700);
+  font-size: 11px;
+}
+#conflict p {
+  margin: 0 0 5px;
+}
+#conflict > div {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+#conflict button {
+  border-color: var(--border);
+  font-size: 11px;
+}
+.field-caption {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.field-caption button {
+  min-height: 20px;
+  height: 20px;
+  width: 22px;
+  padding: 2px;
+  color: var(--muted);
+}
+.field-caption svg {
+  width: 12px;
+  height: 12px;
+}

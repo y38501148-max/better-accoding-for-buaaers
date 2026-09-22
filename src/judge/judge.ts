@@ -40,6 +40,7 @@ export interface Toolchain {
   outputLimit: number;
 }
 export interface CaseResult extends ProcessResult {
+  contentHash: string;
   id: string;
   revision: number;
   status:
@@ -55,6 +56,7 @@ export interface CaseResult extends ProcessResult {
 export interface JudgeResult {
   runId: string;
   sourceHash: string;
+  toolchainConfigHash: string;
   compilation: ProcessResult;
   cases: CaseResult[];
   directory: string;
@@ -86,14 +88,18 @@ export async function compile(
   );
   await fs.writeFile(snapshot, mapped);
   const flags = isC ? toolchain.cArgs : toolchain.cppArgs;
+  const artifactArgument = (file: string) => {
+    const relative = path.relative(path.dirname(source), file);
+    return path.isAbsolute(relative) ? relative : `.${path.sep}${relative}`;
+  };
   const args = [
     ...flags,
     ...(debug ? ["-g", "-O0"] : []),
     "-iquote",
-    path.relative(directory, path.dirname(source)) || ".",
-    path.basename(snapshot),
+    ".",
+    artifactArgument(snapshot),
     "-o",
-    path.basename(program),
+    artifactArgument(program),
   ];
   const configuredCompiler = isC ? toolchain.c : toolchain.cpp;
   const compiler =
@@ -101,9 +107,10 @@ export async function compile(
       ? path.resolve(path.dirname(source), configuredCompiler)
       : configuredCompiler;
   // MinGW linkers may decode absolute Unicode paths through the system code page.
-  // Keep the build directory in the OS-level cwd and pass ASCII artifact names.
+  // Relative artifact paths avoid repeating Unicode ancestors while retaining
+  // the source directory as cwd for user-supplied include/library arguments.
   const result = await runProcess(compiler, args, {
-    cwd: directory,
+    cwd: path.dirname(source),
     timeoutMs: 30000,
     outputLimit: toolchain.outputLimit,
     signal,
@@ -122,6 +129,7 @@ export async function judge(
   const output: JudgeResult = {
     runId: path.basename(built.directory),
     sourceHash: built.sourceHash,
+    toolchainConfigHash: hash(JSON.stringify(toolchain)),
     compilation: built.result,
     cases: [],
     directory: built.directory,
@@ -151,6 +159,14 @@ export async function judge(
       ...result,
       id: c.id,
       revision: c.revision,
+      contentHash: hash(
+        JSON.stringify([
+          c.input,
+          c.expected,
+          c.hasExpectedOutput,
+          c.comparison,
+        ]),
+      ),
       status,
       diff,
     });

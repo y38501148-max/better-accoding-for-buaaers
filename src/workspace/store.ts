@@ -2,79 +2,24 @@ import * as fs from "node:fs/promises";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
 import { z } from "zod";
+import { withWorkspaceLock } from "./lock";
+import {
+  commitCaseFiles,
+  recoverCaseTransaction,
+  readExternalCaseEdits,
+  caseFile,
+} from "./case-files";
 import {
   bindingId,
+  hash,
   caseSchema,
-  targetSchema,
   type Binding,
   type Problem,
   type TestCase,
 } from "../model";
-const problemSchema = z.object({
-  target: targetSchema,
-  title: z.string(),
-  label: z.string(),
-  statement: z.object({
-    format: z.enum(["html", "markdown"]),
-    content: z.string(),
-    baseUrl: z.string(),
-  }),
-  languages: z.array(z.string()),
-  samples: z.array(
-    z.object({ key: z.string(), input: z.string(), expected: z.string() }),
-  ),
-  warnings: z.array(z.string()),
-  timeLimit: z.string().optional(),
-  memoryLimit: z.string().optional(),
-  special: z.boolean(),
-});
-const bindingSchema = z.object({
-  schemaVersion: z.literal(2),
-  bindingId: z.string().regex(/^(problem-\d+|contest-\d+-\d+)$/),
-  problem: problemSchema,
-  sourceFile: z.string(),
-  selectedSubmissionLanguage: z.string().optional(),
-  fetchedAt: z.string(),
-  revision: z.number().int().nonnegative(),
-  cases: z.array(caseSchema),
-  tombstones: z.array(z.string()),
-  deletedCases: z.array(caseSchema).optional(),
-});
-export class ConflictError extends Error {}
-export async function atomicWrite(
-  file: string,
-  content: string,
-): Promise<void> {
-  await fs.mkdir(path.dirname(file), { recursive: true });
-  const temp = `${file}.${randomUUID()}.tmp`;
-  try {
-    await fs.writeFile(temp, content, { flag: "wx", mode: 0o600 });
-    await fs.rename(temp, file);
-  } finally {
-    await fs.rm(temp, { force: true });
-  }
-}
-export async function safePath(
-  root: string,
-  relative: string,
-): Promise<string> {
-  const dest = path.resolve(root, relative),
-    base = path.resolve(root);
-  if (dest === base || !dest.startsWith(base + path.sep))
-    throw new Error("拒绝工作区之外的路径。");
-  let p = dest;
-  for (;;) {
-    try {
-      const stat = await fs.lstat(p);
-      if (stat.isSymbolicLink()) throw new Error("数据路径不能包含符号链接。");
-    } catch (e) {
-      if ((e as NodeJS.ErrnoException).code !== "ENOENT") throw e;
-    }
-    if (p === base) break;
-    p = path.dirname(p);
-  }
-  return dest;
-}
+import { problemSchema, bindingSchema } from "./schema";
+export { ConflictError, atomicWrite, safePath } from "./fs";
+import { ConflictError, safePath } from "./fs";
 export function newCase(name = "自定义用例"): TestCase {
   return {
     id: randomUUID(),
@@ -91,6 +36,7 @@ export function newCase(name = "自定义用例"): TestCase {
 }
 export class WorkspaceStore {
   private pending: Promise<unknown> = Promise.resolve();
+  private observed = new Map<string, { revision: number; hash: string }>();
   constructor(readonly root: string) {}
   private file(id: string) {
     if (!/^(problem-\d+|contest-\d+-\d+)$/.test(id))
@@ -98,41 +44,113 @@ export class WorkspaceStore {
     return safePath(this.root, `.better-accoding/bindings/${id}.json`);
   }
   private serialize<T>(action: () => Promise<T>): Promise<T> {
-    const task = this.pending.then(action);
+    const task = this.pending.then(async () =>
+      withWorkspaceLock(
+        await safePath(this.root, ".better-accoding/write.lock"),
+        action,
+      ),
+    );
     this.pending = task.catch(() => {});
     return task;
   }
   async list(): Promise<Binding[]> {
-    const dir = await safePath(this.root, ".better-accoding/bindings");
-    let files: string[];
-    try {
-      files = await fs.readdir(dir);
-    } catch (e) {
-      if ((e as NodeJS.ErrnoException).code === "ENOENT") return [];
-      throw e;
-    }
-    return Promise.all(
-      files
-        .filter((f) => f.endsWith(".json"))
-        .map((f) => this.read(f.slice(0, -5))),
-    );
+    return this.serialize(async () => {
+      const ids = new Set<string>();
+      for (const relative of [
+        ".better-accoding/bindings",
+        ".better-accoding/transactions",
+      ]) {
+        try {
+          for (const file of await fs.readdir(
+            await safePath(this.root, relative),
+          ))
+            if (/^(problem-\d+|contest-\d+-\d+)\.json$/.test(file))
+              ids.add(file.slice(0, -5));
+        } catch (e) {
+          if ((e as NodeJS.ErrnoException).code !== "ENOENT") throw e;
+        }
+      }
+      const bindings: Binding[] = [];
+      for (const id of ids)
+        bindings.push(await this.remember(await this.readUnlocked(id)));
+      return bindings;
+    });
   }
   async read(id: string): Promise<Binding> {
-    const raw = JSON.parse(await fs.readFile(await this.file(id), "utf8"));
+    return this.serialize(async () =>
+      this.remember(await this.readUnlocked(id)),
+    );
+  }
+  private async remember(binding: Binding) {
+    const raw = await fs.readFile(await this.file(binding.bindingId), "utf8");
+    this.observed.set(binding.bindingId, {
+      revision: binding.revision,
+      hash: hash(raw),
+    });
+    return binding;
+  }
+  private async readUnlocked(id: string): Promise<Binding> {
+    const file = await this.file(id);
+    await recoverCaseTransaction(this.root, id);
+    const rawJSON = await fs.readFile(file, "utf8");
+    const raw = JSON.parse(rawJSON);
     const parsed = bindingSchema.safeParse(raw);
     if (!parsed.success)
       throw new Error("工作区数据版本不兼容或已损坏，原文件已保留；请勿覆盖。");
     if (parsed.data.bindingId !== bindingId(parsed.data.problem.target))
       throw new Error("绑定来源不匹配。");
     await safePath(this.root, parsed.data.sourceFile);
-    return parsed.data;
+    const binding = parsed.data;
+    const observed = this.observed.get(id);
+    const metadataChanged =
+      observed?.revision === binding.revision &&
+      observed.hash !== hash(rawJSON);
+    if (!binding.fileHashes) {
+      // Back up the original format before the first file-model transaction.
+      const backup = await safePath(
+        this.root,
+        `.better-accoding/backups/${id}-${hash(rawJSON)}.json`,
+      );
+      try {
+        await fs.writeFile(backup, rawJSON, { flag: "wx", mode: 0o600 });
+      } catch (e) {
+        if ((e as NodeJS.ErrnoException).code === "ENOENT") {
+          await fs.mkdir(path.dirname(backup), { recursive: true });
+          await fs.writeFile(backup, rawJSON, { flag: "wx", mode: 0o600 });
+        } else if ((e as NodeJS.ErrnoException).code !== "EEXIST") throw e;
+      }
+      await commitCaseFiles(
+        this.root,
+        binding,
+        structuredClone(binding),
+        rawJSON,
+      );
+    } else {
+      const previous = structuredClone(binding);
+      const externalChanged = await readExternalCaseEdits(this.root, binding);
+      if (metadataChanged) binding.revision++;
+      if (externalChanged || metadataChanged) {
+        // External files already contain the new data. Commit their versions without
+        // rewriting them, so queued Webview saves must resolve the revision conflict.
+        if ((await fs.readFile(file, "utf8")) !== rawJSON)
+          throw new ConflictError("读取期间元数据被外部修改，未覆盖文件。");
+        await commitCaseFiles(this.root, binding, previous, rawJSON);
+      }
+    }
+    return binding;
+  }
+  async caseUriPath(id: string, caseId: string, kind: "input" | "expected") {
+    const binding = await this.read(id);
+    if (!binding.cases.some((c) => c.id === caseId))
+      throw new Error("用例已不存在。");
+    return safePath(this.root, caseFile(binding, caseId, kind));
   }
   async import(problem: Problem): Promise<Binding> {
     return this.serialize(async () => {
       problem = problemSchema.parse(problem);
       const id = bindingId(problem.target);
       try {
-        return await this.read(id);
+        return await this.remember(await this.readUnlocked(id));
       } catch (e) {
         if ((e as NodeJS.ErrnoException).code !== "ENOENT") throw e;
       }
@@ -171,8 +189,8 @@ export class WorkspaceStore {
         })),
         tombstones: [],
       };
-      await atomicWrite(await this.file(id), JSON.stringify(binding, null, 2));
-      return binding;
+      await commitCaseFiles(this.root, binding);
+      return this.remember(binding);
     });
   }
   async update(
@@ -181,17 +199,28 @@ export class WorkspaceStore {
     change: (binding: Binding) => void,
   ): Promise<Binding> {
     return this.serialize(async () => {
-      const binding = await this.read(id);
+      const binding = await this.readUnlocked(id);
+      const previousJSON = await fs.readFile(await this.file(id), "utf8");
+      const observed = this.observed.get(id);
+      if (
+        binding.revision === baseRevision &&
+        observed?.revision === baseRevision &&
+        observed.hash !== hash(previousJSON)
+      )
+        throw new ConflictError(
+          "元数据在外部发生更改，草稿已保留，请重新载入后核对。",
+        );
       if (binding.revision !== baseRevision)
         throw new ConflictError(
           "用例已被其他窗口或外部编辑修改。草稿保留，请重新载入并核对。",
         );
+      const previous = structuredClone(binding);
       change(binding);
       binding.revision++;
       bindingSchema.parse(binding);
       await safePath(this.root, binding.sourceFile);
-      await atomicWrite(await this.file(id), JSON.stringify(binding, null, 2));
-      return binding;
+      await commitCaseFiles(this.root, binding, previous, previousJSON);
+      return this.remember(binding);
     });
   }
   async saveCases(
@@ -246,6 +275,7 @@ export class WorkspaceStore {
     });
   }
   async sync(binding: Binding, problem: Problem) {
+    problem = problemSchema.parse(problem);
     if (bindingId(problem.target) !== binding.bindingId)
       throw new Error("拒绝更换同步来源。");
     return this.update(binding.bindingId, binding.revision, (b) => {

@@ -1,5 +1,8 @@
 import * as vscode from "vscode";
 import assert from "node:assert/strict";
+import fs from "node:fs/promises";
+import path from "node:path";
+import type { JudgeResult } from "../../src/judge/judge";
 import type { WorkspaceStore } from "../../src/workspace/store";
 import type { Session } from "../../src/model";
 import { problem } from "../fixtures/synthetic";
@@ -13,6 +16,9 @@ export async function run() {
     commands: string[];
     open(s: Session): Promise<void>;
     getActive(): Session;
+    editTestCaseInput(id: string): Promise<void>;
+    runTestCase(id: string): Promise<void>;
+    getResult(): JudgeResult | undefined;
   };
   const commands = await vscode.commands.getCommands();
   for (const c of api.commands)
@@ -64,11 +70,57 @@ export async function run() {
   assert(layout && layout.groups.length === 2);
   const ratio =
     layout.groups[0].size / (layout.groups[0].size + layout.groups[1].size);
-  assert(
-    Math.abs(ratio - 0.3) < 0.02,
-    `Workbench ratio should be 30%, received ${ratio}`,
-  );
+  const totalWidth = layout.groups[0].size + layout.groups[1].size;
+  if (totalWidth * 0.3 >= 220) {
+    assert(
+      Math.abs(ratio - 0.3) < 0.02,
+      `Workbench ratio should be 30%, received ${ratio}`,
+    );
+  } else {
+    assert(
+      Math.abs(layout.groups[0].size - 220) < 2,
+      "Narrow window respects the native minimum group width",
+    );
+    assert(
+      layout.groups[1].size >= 220,
+      "Code editor remains usable in a narrow window",
+    );
+  }
   console.log("Editor layout ratio:", ratio);
+  await api.editTestCaseInput(binding.cases[0].id);
+  const inputDocument = vscode.window.activeTextEditor!.document;
+  assert.equal(
+    inputDocument.uri.scheme,
+    "file",
+    "Native editor opens a persistent file",
+  );
+  assert(inputDocument.uri.fsPath.endsWith(".in"));
+  const change = new vscode.WorkspaceEdit();
+  change.replace(
+    inputDocument.uri,
+    new vscode.Range(
+      inputDocument.positionAt(0),
+      inputDocument.positionAt(inputDocument.getText().length),
+    ),
+    "3 4\n",
+  );
+  assert(await vscode.workspace.applyEdit(change));
+  // Do not save manually: running must flush dirty native test files itself.
+  await fs.writeFile(
+    path.join(root, binding.sourceFile),
+    '#include <stdio.h>\nint main(void){int a,b;scanf("%d%d",&a,&b);printf("%d\\n",a+b);return 0;}\n',
+  );
+  await api.runTestCase(binding.cases[0].id);
+  assert.equal((await store.read(binding.bindingId)).cases[0].input, "3 4\n");
+  assert.equal(
+    api.getResult()?.cases[0].stdout,
+    "7\n",
+    "Immediate run used latest native-editor input",
+  );
+  console.log(
+    "Native case editor: persistent .in file, unsaved edit flushed before Judge, latest input reached stdin.",
+  );
+
   if (process.env.ACCODING_PREVIEW_HOLD)
     await new Promise((resolve) => setTimeout(resolve, 45000));
   console.log(
