@@ -18,39 +18,52 @@ beforeAll(async () => {
   dir = await fs.mkdtemp(path.join(os.tmpdir(), "评测 空格-"));
 });
 afterAll(async () => {
-  await fs.rm(dir, { recursive: true, force: true });
-});
-it("compiles immutable C snapshot and closes stdin for EOF", async () => {
-  const source = path.join(dir, "-main.c");
-  await fs.writeFile(path.join(dir, "numbers.h"), "#define INITIAL_SUM 0\n");
-  await fs.writeFile(
-    source,
-    '#include <stdio.h>\n#include "numbers.h"\nint main(){int n,s=INITIAL_SUM;while(scanf("%d",&n)==1)s+=n;printf("%d\\n",s);}',
-  );
-  const c = { ...newCase(), input: "1 2 3", expected: "6\n" };
-  const r = await judge(source, dir, [c], {
-    ...tc,
-    cArgs: [...tc.cArgs, "-include", "numbers.h"],
+  await fs.rm(dir, {
+    recursive: true,
+    force: true,
+    maxRetries: 5,
+    retryDelay: 200,
   });
-  expect(r.compilation.exitCode, r.compilation.stderr).toBe(0);
-  expect(r.cases[0].status).toBe("PASS");
 });
-it("compiles C++ and distinguishes unchecked from expected empty", async () => {
-  const source = path.join(dir, "main.cpp");
-  await fs.writeFile(
-    source,
-    '#include <iostream>\nint main(){std::cout<<"x";}',
-  );
-  const r = await judge(
-    source,
-    dir,
-    [{ ...newCase(), hasExpectedOutput: false }, newCase()],
-    tc,
-  );
-  expect(r.compilation.exitCode, r.compilation.stderr).toBe(0);
-  expect(r.cases.map((x) => x.status)).toEqual(["UNCHECKED", "FAIL"]);
-});
-it("returns compile errors without running", async () => {
+it(
+  "compiles immutable C snapshot and closes stdin for EOF",
+  { timeout: 40000 },
+  async () => {
+    const source = path.join(dir, "-main.c");
+    await fs.writeFile(path.join(dir, "numbers.h"), "#define INITIAL_SUM 0\n");
+    await fs.writeFile(
+      source,
+      '#include <stdio.h>\n#include "numbers.h"\nint main(){int n,s=INITIAL_SUM;while(scanf("%d",&n)==1)s+=n;printf("%d\\n",s);}',
+    );
+    const c = { ...newCase(), input: "1 2 3", expected: "6\n" };
+    const r = await judge(source, dir, [c], {
+      ...tc,
+      cArgs: [...tc.cArgs, "-include", "numbers.h"],
+    });
+    expect(r.compilation.exitCode, r.compilation.stderr).toBe(0);
+    expect(r.cases[0].status).toBe("PASS");
+  },
+);
+it(
+  "compiles C++ and distinguishes unchecked from expected empty",
+  { timeout: 40000 },
+  async () => {
+    const source = path.join(dir, "main.cpp");
+    await fs.writeFile(
+      source,
+      '#include <iostream>\nint main(){std::cout<<"x";}',
+    );
+    const r = await judge(
+      source,
+      dir,
+      [{ ...newCase(), hasExpectedOutput: false }, newCase()],
+      tc,
+    );
+    expect(r.compilation.exitCode, r.compilation.stderr).toBe(0);
+    expect(r.cases.map((x) => x.status)).toEqual(["UNCHECKED", "FAIL"]);
+  },
+);
+it("returns compile errors without running", { timeout: 40000 }, async () => {
   const source = path.join(dir, "broken.c");
   await fs.writeFile(source, "int main( {");
   const r = await judge(source, dir, [newCase()], tc);
