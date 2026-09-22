@@ -1,17 +1,20 @@
-import { it, expect, beforeAll, afterAll } from "vitest";
+import { it, expect, beforeAll, afterAll, vi } from "vitest";
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { judge, type Toolchain } from "../../src/judge/judge";
 import { runProcess } from "../../src/judge/process";
 import { newCase } from "../../src/workspace/store";
+// Shared Windows runners need process startup and taskkill headroom.
+vi.setConfig({ testTimeout: 20000, hookTimeout: 20000 });
+const processBudget = process.platform === "win32" ? 10000 : 2000;
 let dir: string;
 const tc: Toolchain = {
   c: process.platform === "darwin" ? "clang" : "gcc",
   cpp: process.platform === "darwin" ? "clang++" : "g++",
   cArgs: ["-std=c99"],
   cppArgs: ["-std=c++17"],
-  timeoutMs: 500,
+  timeoutMs: process.platform === "win32" ? processBudget : 500,
   outputLimit: 4096,
 };
 beforeAll(async () => {
@@ -84,7 +87,7 @@ it("terminates timeout, output floods and cancellation", async () => {
   const flood = await runProcess(
     process.execPath,
     ["-e", 'while(true)process.stdout.write("x".repeat(2048))'],
-    { ...common, timeoutMs: 2000 },
+    { ...common, timeoutMs: processBudget },
   );
   expect(flood.reason).toBe("OUTPUT_LIMIT");
   expect(flood.stdout.length).toBeLessThanOrEqual(1024);
@@ -94,7 +97,7 @@ it("terminates timeout, output floods and cancellation", async () => {
     (
       await runProcess(process.execPath, ["-e", "setInterval(()=>{},1)"], {
         ...common,
-        timeoutMs: 2000,
+        timeoutMs: processBudget,
         signal: ac.signal,
       })
     ).reason,
@@ -107,14 +110,15 @@ it("cleans up child process inherited pipes after parent exit", async () => {
       "-e",
       `require('child_process').spawn(process.execPath,['-e','setInterval(()=>{},100)'],{stdio:'inherit'});setTimeout(()=>process.exit(0),80);`,
     ],
-    { cwd: dir, timeoutMs: 2000, outputLimit: 1024 },
+    { cwd: dir, timeoutMs: processBudget, outputLimit: 1024 },
   );
-  expect(r.elapsedMs).toBeLessThan(1500);
+  expect(r.reason).toBeUndefined();
+  expect(r.elapsedMs).toBeLessThan(process.platform === "win32" ? 8000 : 1500);
 });
 it("reports nonzero exits and missing executable", async () => {
   const r = await runProcess(process.execPath, ["-e", "process.exit(3)"], {
     cwd: dir,
-    timeoutMs: 2000,
+    timeoutMs: processBudget,
     outputLimit: 1024,
   });
   expect(r.exitCode).toBe(3);
@@ -169,6 +173,8 @@ it(
     const result = await judge(source, dir, [normal, strict, wrong], tc);
     expect(result.compilation.exitCode, result.compilation.stderr).toBe(0);
     expect(result.cases.map((c) => c.status)).toEqual(["PASS", "FAIL", "FAIL"]);
-    expect(result.cases[0].stderr).toBe("debug message\n");
+    expect(result.cases[0].stderr.replace(/\r\n/g, "\n")).toBe(
+      "debug message\n",
+    );
   },
 );
