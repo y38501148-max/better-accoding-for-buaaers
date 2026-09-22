@@ -1,7 +1,7 @@
 import * as vscode from "vscode";
 import { randomBytes, randomUUID } from "node:crypto";
 import type { Binding } from "../model";
-import { renderStatement } from "../problems/statement";
+import { localStatementHtml, IMAGE_DIRECTORY } from "../problems/images";
 export class Workbench {
   panel?: vscode.WebviewPanel;
   private pending = new Map<
@@ -13,6 +13,7 @@ export class Workbench {
     }
   >();
   private codeColumn?: vscode.ViewColumn;
+  private renderVersion = 0;
   constructor(
     private context: vscode.ExtensionContext,
     private onMessage: (message: unknown) => void,
@@ -98,7 +99,7 @@ export class Workbench {
       p.webview.asWebviewUri(
         vscode.Uri.joinPath(this.context.extensionUri, "dist", name),
       );
-    p.webview.html = `<!DOCTYPE html><html lang="zh-CN"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src ${p.webview.cspSource} https:; font-src ${p.webview.cspSource}; style-src ${p.webview.cspSource} 'unsafe-inline'; script-src 'nonce-${nonce}';"><link rel="stylesheet" href="${resource("webview.css")}"><link rel="stylesheet" href="${resource("katex/katex.min.css")}"></head><body><div id="app"></div><script nonce="${nonce}" src="${resource("webview.js")}"></script></body></html>`;
+    p.webview.html = `<!DOCTYPE html><html lang="zh-CN"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src ${p.webview.cspSource}; font-src ${p.webview.cspSource}; style-src ${p.webview.cspSource} 'unsafe-inline'; script-src 'nonce-${nonce}';"><link rel="stylesheet" href="${resource("webview.css")}"><link rel="stylesheet" href="${resource("katex/katex.min.css")}"></head><body><div id="app"></div><script nonce="${nonce}" src="${resource("webview.js")}"></script></body></html>`;
     p.webview.onDidReceiveMessage((m: unknown) => {
       if (
         typeof m === "object" &&
@@ -121,6 +122,7 @@ export class Workbench {
     });
     p.onDidDispose(() => {
       this.panel = undefined;
+      this.renderVersion++;
       for (const req of this.pending.values()) {
         clearTimeout(req.timer);
         req.reject(new Error("面板已关闭，操作取消。"));
@@ -133,17 +135,23 @@ export class Workbench {
   post(message: unknown) {
     void this.panel?.webview.postMessage(message);
   }
-  show(binding: Binding, root: string) {
-    this.post({
-      type: "binding",
-      binding,
-      root,
-      html: renderStatement(
-        binding.problem.statement.format,
-        binding.problem.statement.content,
-        binding.problem.statement.baseUrl,
-      ),
-    });
+  async show(binding: Binding, root: string) {
+    const panel = this.panel;
+    if (!panel) return;
+    const version = ++this.renderVersion;
+    const html = await localStatementHtml(binding.problem, root, (file) =>
+      panel.webview.asWebviewUri(vscode.Uri.file(file)).toString(),
+    );
+    if (this.panel !== panel || version !== this.renderVersion) return;
+    panel.webview.options = {
+      ...panel.webview.options,
+      localResourceRoots: [
+        vscode.Uri.joinPath(this.context.extensionUri, "dist"),
+        vscode.Uri.joinPath(this.context.extensionUri, "media"),
+        vscode.Uri.joinPath(vscode.Uri.file(root), IMAGE_DIRECTORY),
+      ],
+    };
+    this.post({ type: "binding", binding, root, html });
   }
   async flush() {
     if (!this.panel) return;

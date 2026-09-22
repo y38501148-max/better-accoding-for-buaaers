@@ -269,6 +269,7 @@ article p {
 }
 article img {
   max-width: 100%;
+  background: #fff;
 }
 article ul,
 article ol {

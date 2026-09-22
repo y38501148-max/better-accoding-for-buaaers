@@ -8,6 +8,7 @@ export const problemSchema = z.object({
     format: z.enum(["html", "markdown"]),
     content: z.string(),
     baseUrl: z.string(),
+    images: z.record(z.string()).optional(),
   }),
   languages: z.array(z.string()),
   samples: z.array(

@@ -4,7 +4,7 @@ import { randomUUID } from "node:crypto";
 export class ConflictError extends Error {}
 export async function atomicWrite(
   file: string,
-  content: string,
+  content: string | Uint8Array,
 ): Promise<void> {
   await fs.mkdir(path.dirname(file), { recursive: true });
   const temp = `${file}.${randomUUID()}.tmp`;

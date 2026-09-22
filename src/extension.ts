@@ -1,4 +1,6 @@
 import * as vscode from "vscode";
+import { cacheProblemImages } from "./problems/images";
+import { imageLoader } from "./problems/image-fetch";
 import {
   SubmissionStore,
   isUncertain,
@@ -276,7 +278,7 @@ export async function activate(context: vscode.ExtensionContext) {
         true,
       );
       polling?.abort();
-      workbench.show(binding, s.root);
+      await workbench.show(binding, s.root);
       await restoreSubmissions(s);
       treeChange.fire();
       await context.workspaceState.update("lastBinding", {
@@ -381,9 +383,12 @@ export async function activate(context: vscode.ExtensionContext) {
             )
             .then((items) => items?.map((i) => i.problem));
     if (!picked?.length) return;
+    const loadImages = imageLoader(client);
     let first: Binding | undefined;
     for (const p of picked) {
-      const b = await store(root).import(p);
+      const b = await store(root).import(
+        await cacheProblemImages(p, root, loadImages),
+      );
       first ??= b;
     }
     treeChange.fire();
@@ -415,7 +420,7 @@ export async function activate(context: vscode.ExtensionContext) {
       s.binding.revision,
       cases,
     );
-    workbench.show(s.binding, s.root);
+    await workbench.show(s.binding, s.root);
   }
   async function chooseCase(id?: string) {
     const s = requireActive();
@@ -585,7 +590,7 @@ export async function activate(context: vscode.ExtensionContext) {
         b.selectedSubmissionLanguage = choice;
       },
     );
-    if (active === s) workbench.show(s.binding, s.root);
+    if (active === s) await workbench.show(s.binding, s.root);
     return true;
   }
   let submissionCacheGeneration = 0;
@@ -811,10 +816,15 @@ export async function activate(context: vscode.ExtensionContext) {
     await workbench.flush();
     const s = await refreshActive();
     const t = s.binding.problem.target;
+    const loadImages = imageLoader(client);
     if (t.kind === "problemset") {
       s.binding = await store(s.root).sync(
         s.binding,
-        await new ProblemsetAdapter(client).fetch(t.problemId),
+        await cacheProblemImages(
+          await new ProblemsetAdapter(client).fetch(t.problemId),
+          s.root,
+          loadImages,
+        ),
       );
     } else {
       const problems = await fetchContestForImport(
@@ -833,12 +843,15 @@ export async function activate(context: vscode.ExtensionContext) {
           (p) => p.target.problemId === b.problem.target.problemId,
         );
         if (p) {
-          const updated = await store(s.root).sync(b, p);
+          const updated = await store(s.root).sync(
+            b,
+            await cacheProblemImages(p, s.root, loadImages),
+          );
           if (b.bindingId === s.binding.bindingId) s.binding = updated;
         }
       }
     }
-    workbench.show(s.binding, s.root);
+    await workbench.show(s.binding, s.root);
     treeChange.fire();
   }
   async function bindFile() {
@@ -1017,7 +1030,7 @@ export async function activate(context: vscode.ExtensionContext) {
           },
         );
         s.binding = await store(s.root).sync(s.binding, s.binding.problem);
-        workbench.show(s.binding, s.root);
+        await workbench.show(s.binding, s.root);
         return;
       }
       case "importTestCases":
@@ -1178,7 +1191,7 @@ export async function activate(context: vscode.ExtensionContext) {
     const m = parsed.data;
     if (m.type === "ready") {
       if (active) {
-        workbench.show(active.binding, active.root);
+        await workbench.show(active.binding, active.root);
         await restoreSubmissions(active);
       }
       return;

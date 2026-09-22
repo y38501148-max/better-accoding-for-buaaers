@@ -26,7 +26,12 @@ export interface Problem {
   target: Target;
   title: string;
   label: string;
-  statement: { format: "markdown" | "html"; content: string; baseUrl: string };
+  statement: {
+    format: "markdown" | "html";
+    content: string;
+    baseUrl: string;
+    images?: Record<string, string>;
+  };
   languages: string[];
   samples: Sample[];
   warnings: string[];

@@ -20,12 +20,16 @@ export interface Reply {
   status: number;
   url: string;
   text: string;
+  bytes: Buffer;
   headers: Headers;
 }
 export type Transport = (url: string, init: RequestInit) => Promise<Response>;
 export class AccodingClient {
   private controller = new AbortController();
   private baseOrigin: typeof ORIGIN | typeof ADMIN_ORIGIN = ORIGIN;
+  get sessionSignal() {
+    return this.controller.signal;
+  }
   get origin() {
     return this.baseOrigin;
   }
@@ -54,6 +58,8 @@ export class AccodingClient {
       signal?: AbortSignal;
       timeoutMs?: number;
       retries?: number;
+      maxBytes?: number;
+      accept?: string;
     } = {},
   ): Promise<Reply> {
     const method = options.method ?? "GET";
@@ -91,6 +97,8 @@ export class AccodingClient {
       signal?: AbortSignal;
       timeoutMs?: number;
       retries?: number;
+      maxBytes?: number;
+      accept?: string;
     },
   ): Promise<Reply> {
     let url = new URL(path, this.origin);
@@ -105,7 +113,7 @@ export class AccodingClient {
       if (url.origin !== this.origin || url.username || url.password)
         throw new ApiError("protocol", "已阻止跨域重定向。");
       const headers: Record<string, string> = {
-        Accept: "application/json, text/html;q=0.9",
+        Accept: options.accept ?? "application/json, text/html;q=0.9",
         Cookie: await this.jar.getCookieString(url.href),
       };
       if (method === "POST") {
@@ -178,9 +186,12 @@ export class AccodingClient {
           "protocol",
           `请求被拒绝（HTTP ${response.status}）。`,
         );
-      let buffer: string;
+      let buffer: Buffer;
       try {
-        buffer = await readLimited(response, 8 * 1024 * 1024);
+        buffer = await readLimited(
+          response,
+          options.maxBytes ?? 8 * 1024 * 1024,
+        );
       } catch (e) {
         if (options.signal?.aborted) throw new Error("操作已取消。");
         if (e instanceof ApiError) throw e;
@@ -194,7 +205,8 @@ export class AccodingClient {
       return {
         status: response.status,
         url: url.href,
-        text: buffer,
+        text: buffer.toString("utf8"),
+        bytes: buffer,
         headers: response.headers,
       };
     }
@@ -220,9 +232,9 @@ export class AccodingClient {
     }
   }
 }
-async function readLimited(response: Response, limit: number): Promise<string> {
+async function readLimited(response: Response, limit: number): Promise<Buffer> {
   const reader = response.body?.getReader();
-  if (!reader) return "";
+  if (!reader) return Buffer.alloc(0);
   const chunks: Uint8Array[] = [];
   let size = 0;
   try {
@@ -239,5 +251,5 @@ async function readLimited(response: Response, limit: number): Promise<string> {
   } finally {
     reader.releaseLock();
   }
-  return Buffer.concat(chunks).toString("utf8");
+  return Buffer.concat(chunks);
 }
