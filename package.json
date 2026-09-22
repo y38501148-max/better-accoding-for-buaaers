@@ -180,6 +180,11 @@
         "category": "Accoding"
       },
       {
+        "command": "betterAccoding.resumeSubmissions",
+        "title": "恢复当前题目评测查询",
+        "category": "Accoding"
+      },
+      {
         "command": "betterAccoding.openOnWebsite",
         "title": "在原站打开",
         "category": "Accoding"

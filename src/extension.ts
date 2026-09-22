@@ -1,4 +1,11 @@
 import * as vscode from "vscode";
+import {
+  SubmissionStore,
+  isUncertain,
+  isPending,
+  type SubmissionAttempt,
+} from "./submissions/store";
+import { monitorSubmissions } from "./submissions/monitor";
 import { fetchContestForImport } from "./accoding/import";
 import * as fs from "node:fs/promises";
 import path from "node:path";
@@ -26,7 +33,6 @@ import {
   WorkspaceStore,
   ConflictError,
   safePath,
-  atomicWrite,
   newCase,
 } from "./workspace/store";
 import {
@@ -63,6 +69,7 @@ const commandNames = [
   "selectSubmissionTarget",
   "submit",
   "refreshSubmissions",
+  "resumeSubmissions",
   "openOnWebsite",
   "checkEnvironment",
   "exportDiagnostics",
@@ -270,6 +277,7 @@ export async function activate(context: vscode.ExtensionContext) {
       );
       polling?.abort();
       workbench.show(binding, s.root);
+      await restoreSubmissions(s);
       treeChange.fire();
       await context.workspaceState.update("lastBinding", {
         root: s.root,
@@ -309,6 +317,15 @@ export async function activate(context: vscode.ExtensionContext) {
       "accoding.session",
       JSON.stringify(await client.jar.serialize()),
     );
+    workbench.post({
+      type: "submissions",
+      root: active?.root,
+      bindingId: active?.binding.bindingId,
+      submissions: [],
+      uncertain: [],
+      focus: false,
+    });
+    if (active) await restoreSubmissions(active);
     workbench.post({ type: "notice", text: "已登录 Accoding" });
     return true;
   }
@@ -571,34 +588,75 @@ export async function activate(context: vscode.ExtensionContext) {
     if (active === s) workbench.show(s.binding, s.root);
     return true;
   }
-  const submissionFile = (userId: string) =>
-    path.join(
-      context.globalStorageUri.fsPath,
-      "submissions",
-      `${hash(userId)}.json`,
+  let submissionCacheGeneration = 0;
+  const submissionStore = new SubmissionStore(
+    path.join(context.globalStorageUri.fsPath, "submissions"),
+  );
+  function sameSubmissionContext(
+    s: Session,
+    account: string,
+    connection = client,
+  ) {
+    return (
+      client === connection &&
+      user?.id === account &&
+      !!active &&
+      sessionKey(active) === sessionKey(s)
     );
-  let privateWrites: Promise<unknown> = Promise.resolve();
-  function persistSubmission(userId: string, s: Session, entry: unknown) {
-    const task = privateWrites.then(() => writeSubmission(userId, s, entry));
-    privateWrites = task.catch(() => {});
-    return task;
   }
-  async function writeSubmission(userId: string, s: Session, entry: unknown) {
-    const file = submissionFile(userId);
-    let data: unknown[] = [];
-    try {
-      data = JSON.parse(await fs.readFile(file, "utf8"));
-    } catch (e) {
-      if ((e as NodeJS.ErrnoException).code !== "ENOENT") throw e;
-    }
-    data.push({ bindingId: s.binding.bindingId, ...(entry as object) });
-    await atomicWrite(file, JSON.stringify(data));
+  async function postSubmissions(
+    s: Session,
+    account: string,
+    focus = false,
+    status?: string,
+    valid: () => boolean = () => true,
+  ) {
+    const connection = client;
+    const generation = submissionCacheGeneration;
+    const attempts = await submissionStore.list(
+      account,
+      s.binding.problem.target,
+    );
+    if (
+      !valid() ||
+      generation !== submissionCacheGeneration ||
+      !sameSubmissionContext(s, account, connection)
+    )
+      return;
+    workbench.post({
+      type: "submissions",
+      root: s.root,
+      bindingId: s.binding.bindingId,
+      submissions: attempts
+        .flatMap((a) => (a.submission ? [a.submission] : []))
+        .reverse(),
+      uncertain: attempts
+        .filter(isUncertain)
+        .map((a) => ({ createdAt: a.createdAt, language: a.language })),
+      focus,
+      status,
+    });
+  }
+  async function restoreSubmissions(s: Session) {
+    const account = user?.id;
+    if (!account) return;
+    await postSubmissions(s, account);
+    const attempts = await submissionStore.list(
+      account,
+      s.binding.problem.target,
+    );
+    const pending = attempts.flatMap((a) =>
+      a.submission && isPending(a.submission) ? [a.submission] : [],
+    );
+    if (pending.length && sameSubmissionContext(s, account))
+      void poll(s, pending, account).catch(error);
   }
   async function submit() {
     trusted();
     if (submitting) throw new Error("正在提交，请勿重复点击。");
     submitting = true;
     let sent = false;
+    let attempt: SubmissionAttempt | undefined;
     let s: Session | undefined;
     let account: string | undefined;
     try {
@@ -606,42 +664,35 @@ export async function activate(context: vscode.ExtensionContext) {
       s = await refreshActive();
       const identity = await ensureUser();
       account = identity.id;
-      let history: Array<{ bindingId: string; state: string }> = [];
-      try {
-        history = JSON.parse(
-          await fs.readFile(submissionFile(account), "utf8"),
-        );
-      } catch (e) {
-        if ((e as NodeJS.ErrnoException).code !== "ENOENT") throw e;
-      }
-      const previous = history
-        .filter((x) => x.bindingId === s!.binding.bindingId)
-        .at(-1);
-      if (previous && ["Sending", "UnknownOutcome"].includes(previous.state)) {
+      const unresolved = (
+        await submissionStore.list(account, s.binding.problem.target)
+      ).filter(isUncertain);
+      const acknowledged: string[] = [];
+      if (unresolved.length) {
+        await postSubmissions(s, account, true);
         const choice = await vscode.window.showWarningMessage(
           "上一次提交结果不确定。请先刷新本人记录核对；再次提交可能产生重复记录。",
           { modal: true },
           "已核对，仍要再次提交",
         );
         if (choice !== "已核对，仍要再次提交") return;
+        acknowledged.push(...unresolved.map((a) => a.attemptId));
       }
       if (!s.binding.selectedSubmissionLanguage && !(await chooseLanguage(s)))
         return;
       const source = await saveSource(s);
       const code = await fs.readFile(source, "utf8");
       const target = s.binding.problem.target;
-      await persistSubmission(account, s, {
-        state: "Draft",
-        target,
-        language: s.binding.selectedSubmissionLanguage,
-        sourceHash: hash(code),
-        createdAt: new Date().toISOString(),
-      });
       const markSending = async () => {
-        await persistSubmission(account!, s!, {
-          state: "Sending",
-          createdAt: new Date().toISOString(),
-        });
+        attempt = await submissionStore.begin(
+          account!,
+          {
+            target,
+            language: s!.binding.selectedSubmissionLanguage!,
+            sourceHash: hash(code),
+          },
+          acknowledged,
+        );
         sent = true;
       };
       const submission =
@@ -658,91 +709,102 @@ export async function activate(context: vscode.ExtensionContext) {
               s.binding.selectedSubmissionLanguage!,
               markSending,
             );
-      await persistSubmission(account, s, {
-        state: "AcceptedByServer",
-        submission,
-      });
-      workbench.post({
-        type: "notice",
-        text: `已提交 #${submission.id}，OJ：${submission.result}`,
-      });
-      void poll(s, submission, account).catch(error);
-    } catch (e) {
-      if (sent && s && account) {
-        await persistSubmission(account, s, {
-          state: "UnknownOutcome",
-          createdAt: new Date().toISOString(),
-        });
+      await submissionStore.observe(account, submission, attempt!.attemptId);
+      await postSubmissions(s, account, true);
+      if (sameSubmissionContext(s, account)) {
         workbench.post({
           type: "notice",
-          text: "提交结果待确认，请刷新记录。不会自动重发。",
+          text: `已提交 #${submission.id}，OJ：${submission.result}`,
         });
+        void restoreSubmissions(s).catch(error);
+      }
+    } catch (e) {
+      if (sent && s && account && attempt) {
+        await submissionStore.uncertain(account, attempt.attemptId);
+        await postSubmissions(
+          s,
+          account,
+          true,
+          "提交结果待确认，请刷新记录。不会自动重发。",
+        );
       }
       throw e;
     } finally {
       submitting = false;
     }
   }
-  async function poll(s: Session, submission: Submission, account: string) {
+  async function poll(s: Session, submissions: Submission[], account: string) {
+    if (!sameSubmissionContext(s, account) || !workbench.panel) return;
     polling?.abort();
     const abort = new AbortController();
+    const connection = client;
     polling = abort;
-    const began = Date.now();
-    let wait = 2000;
-    while (
+    const valid = () =>
       !abort.signal.aborted &&
-      workbench.panel &&
-      Date.now() - began < 120000
-    ) {
-      workbench.post({
-        type: "submissions",
-        root: s.root,
-        bindingId: s.binding.bindingId,
-        submissions: [submission],
+      sameSubmissionContext(s, account, connection) &&
+      !!workbench.panel;
+    try {
+      const result = await monitorSubmissions({
+        submissions,
+        signal: abort.signal,
+        get: async (submission) => {
+          if (!valid()) {
+            abort.abort();
+            return submission;
+          }
+          const t = submission.target;
+          return t.kind === "contest"
+            ? new ContestAdapter(connection).get(t, submission.id)
+            : new ProblemsetAdapter(connection).get(t, submission.id);
+        },
+        update: async (submission) => {
+          if (!valid()) return;
+          await submissionStore.observe(account, submission, undefined, valid);
+          if (valid())
+            await postSubmissions(s, account, false, undefined, valid);
+        },
       });
-      if (!["WT", "JG"].includes(submission.result)) {
-        await persistSubmission(account, s, { state: "Final", submission });
-        return;
-      }
-      await new Promise<void>((resolve) => {
-        const timer = setTimeout(() => {
-          abort.signal.removeEventListener("abort", stop);
-          resolve();
-        }, wait);
-        const stop = () => {
-          clearTimeout(timer);
-          resolve();
-        };
-        abort.signal.addEventListener("abort", stop, { once: true });
-      });
-      if (abort.signal.aborted) return;
-      const t = submission.target;
-      submission =
-        t.kind === "contest"
-          ? await new ContestAdapter(client).get(t, submission.id)
-          : await new ProblemsetAdapter(client).get(t, submission.id);
-      wait = Math.min(10000, wait + 1000);
+      if (result === "waiting" && valid())
+        await postSubmissions(
+          s,
+          account,
+          false,
+          "仍在评测。点击“恢复查询”可继续查询。",
+          valid,
+        );
+    } catch (e) {
+      if (valid())
+        await postSubmissions(
+          s,
+          account,
+          false,
+          `查询已暂停：${e instanceof Error ? e.message : "网络异常"} 点击“恢复查询”重试。`,
+          valid,
+        );
     }
   }
   async function refreshSubmissions() {
     const s = requireActive();
     const identity = await ensureUser();
+    const connection = client;
+    const generation = submissionCacheGeneration;
+    const valid = () =>
+      sameSubmissionContext(s, identity.id, connection) &&
+      generation === submissionCacheGeneration;
     const t = s.binding.problem.target;
     const entries =
       t.kind === "contest"
-        ? await new ContestAdapter(client).list(t)
-        : await new ProblemsetAdapter(client).list(t, identity.id);
+        ? await new ContestAdapter(connection).list(t)
+        : await new ProblemsetAdapter(connection).list(t, identity.id);
+    if (!valid()) return;
     const own = entries.filter(
       (e) => !e.creatorId || e.creatorId === identity.id,
     );
-    workbench.post({
-      type: "submissions",
-      root: s.root,
-      bindingId: s.binding.bindingId,
-      submissions: own,
-    });
-    const pending = own.find((e) => ["WT", "JG"].includes(e.result));
-    if (pending) void poll(s, pending, identity.id).catch(error);
+    for (const entry of own)
+      await submissionStore.observe(identity.id, entry, undefined, valid);
+    if (!valid()) return;
+    await postSubmissions(s, identity.id, true);
+    await restoreSubmissions(s);
   }
   async function sync(all = false) {
     trusted();
@@ -891,6 +953,8 @@ export async function activate(context: vscode.ExtensionContext) {
           root: active?.root,
           bindingId: active?.binding.bindingId,
           submissions: [],
+          uncertain: [],
+          focus: false,
         });
         return;
       case "importProblem":
@@ -933,6 +997,9 @@ export async function activate(context: vscode.ExtensionContext) {
         return submit();
       case "refreshSubmissions":
         return refreshSubmissions();
+      case "resumeSubmissions":
+        await ensureUser();
+        return restoreSubmissions(requireActive());
       case "selectSubmissionLanguage":
         await workbench.flush();
         return chooseLanguage(await refreshActive());
@@ -1088,10 +1155,18 @@ export async function activate(context: vscode.ExtensionContext) {
         return vscode.window.showTextDocument(doc);
       }
       case "clearPrivateData": {
+        if (submitting)
+          throw new Error("提交正在发送，请等待本次操作结束后清理记录。");
         polling?.abort();
-        await fs.rm(path.join(context.globalStorageUri.fsPath, "submissions"), {
-          recursive: true,
-          force: true,
+        submissionCacheGeneration++;
+        await submissionStore.clear();
+        workbench.post({
+          type: "submissions",
+          root: active?.root,
+          bindingId: active?.binding.bindingId,
+          submissions: [],
+          uncertain: [],
+          focus: false,
         });
         return;
       }
@@ -1102,7 +1177,10 @@ export async function activate(context: vscode.ExtensionContext) {
     if (!parsed.success) throw new Error("已拒绝无效工作台消息。");
     const m = parsed.data;
     if (m.type === "ready") {
-      if (active) workbench.show(active.binding, active.root);
+      if (active) {
+        workbench.show(active.binding, active.root);
+        await restoreSubmissions(active);
+      }
       return;
     }
     if (m.type === "copyDraft") {

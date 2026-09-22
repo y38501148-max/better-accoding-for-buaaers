@@ -31,6 +31,8 @@ let resolveSave:
   rejectSave: ((e: Error) => void) | undefined;
 let saveRequestId: string | undefined;
 let deleted: TestCase[] = [];
+let uncertainSubmissions: { createdAt: string; language?: string }[] = [];
+let submissionStatus = "";
 let conflict: Binding | undefined;
 let sourceStale = false,
   configurationStale = false;
@@ -461,8 +463,18 @@ function render() {
   else {
     content.append(
       button("刷新本人记录", () => void action("refreshSubmissions")),
+      button("恢复查询", () => void action("resumeSubmissions")),
     );
-    if (!submissions.length) content.append(el("p", "暂无本人的提交记录。"));
+    if (submissionStatus) content.append(el("p", submissionStatus));
+    for (const attempt of uncertainSubmissions)
+      content.append(
+        el(
+          "p",
+          `提交状态待确认${attempt.createdAt ? " · " + new Date(attempt.createdAt).toLocaleString() : ""}${attempt.language ? " · " + attempt.language : ""}。尚未取得提交 ID，请刷新本人记录核对；不会自动重发。`,
+        ),
+      );
+    if (!submissions.length && !uncertainSubmissions.length)
+      content.append(el("p", "暂无本人的提交记录。"));
     for (const s of submissions) {
       const row = el("details");
       row.append(
@@ -750,13 +762,19 @@ window.addEventListener("message", (event) => {
   const m = event.data;
   if (m.type === "binding") {
     const saved = api.getState();
+    const changed =
+      binding?.bindingId !== m.binding.bindingId || root !== m.root;
     binding = m.binding;
     root = m.root;
     html = m.html;
     result = undefined;
     sourceStale = false;
     configurationStale = false;
-    submissions = [];
+    if (changed) {
+      submissions = [];
+      uncertainSubmissions = [];
+      submissionStatus = "";
+    }
     deleted = [];
     conflict = undefined;
     dirty = false;
@@ -833,8 +851,10 @@ window.addEventListener("message", (event) => {
     m.root === root
   ) {
     submissions = m.submissions;
-    tab = "submissions";
-    render();
+    uncertainSubmissions = m.uncertain ?? [];
+    submissionStatus = m.status ?? "";
+    if (m.focus !== false) tab = "submissions";
+    if (tab === "submissions") render();
   } else if (m.type === "notice") {
     document.querySelector("#summary")!.textContent = m.text;
   } else if (m.type === "addCase") createCase();
