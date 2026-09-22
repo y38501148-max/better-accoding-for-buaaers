@@ -1,6 +1,6 @@
 # 本地编译与调试环境
 
-开发候选 0.1.0。已验证 macOS arm64 上 Clang 的 C/C++ 编译和本地评测；Windows/Linux 的 CI 编译和 Judge 已通过；交互调试仍需验收。
+公开首发 0.1.0。已验证 macOS arm64 上 Clang 的 C/C++ 编译和本地评测；Windows/Linux 的 CI 编译和 Judge 已通过；交互调试仍需验收。
 
 ## macOS
 

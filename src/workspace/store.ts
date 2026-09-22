@@ -1,4 +1,9 @@
 import * as fs from "node:fs/promises";
+import {
+  readContestRoster,
+  writeContestRoster,
+  writeWorkspaceIndex,
+} from "./index";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
 import { z } from "zod";
@@ -15,6 +20,7 @@ import {
   caseSchema,
   type Binding,
   type Problem,
+  type ContestSnapshot,
   type TestCase,
 } from "../model";
 import { problemSchema, bindingSchema } from "./schema";
@@ -47,7 +53,12 @@ export class WorkspaceStore {
     const task = this.pending.then(async () =>
       withWorkspaceLock(
         await safePath(this.root, ".better-accoding/write.lock"),
-        action,
+        async () => {
+          await writeWorkspaceIndex(this.root);
+          const result = await action();
+          await writeWorkspaceIndex(this.root);
+          return result;
+        },
       ),
     );
     this.pending = task.catch(() => {});
@@ -138,6 +149,23 @@ export class WorkspaceStore {
       }
     }
     return binding;
+  }
+  contestRoster(id: string) {
+    return this.serialize(() => readContestRoster(this.root, id));
+  }
+  recordContest(snapshot: ContestSnapshot) {
+    return this.serialize(() => writeContestRoster(this.root, snapshot));
+  }
+  markRemoved(binding: Binding) {
+    if (binding.problem.target.kind !== "contest")
+      throw Error("只有比赛绑定可以标记为移除。");
+    if (binding.unavailable) return this.read(binding.bindingId);
+    return this.update(binding.bindingId, binding.revision, (b) => {
+      b.unavailable = {
+        reason: "removed",
+        checkedAt: new Date().toISOString(),
+      };
+    });
   }
   async caseUriPath(id: string, caseId: string, kind: "input" | "expected") {
     const binding = await this.read(id);
@@ -280,6 +308,7 @@ export class WorkspaceStore {
       throw new Error("拒绝更换同步来源。");
     return this.update(binding.bindingId, binding.revision, (b) => {
       b.problem = problem;
+      delete b.unavailable;
       b.fetchedAt = new Date().toISOString();
       for (const sample of problem.samples) {
         if (b.tombstones.includes(sample.key)) continue;

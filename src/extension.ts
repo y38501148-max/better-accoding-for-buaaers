@@ -8,7 +8,8 @@ import {
   type SubmissionAttempt,
 } from "./submissions/store";
 import { monitorSubmissions } from "./submissions/monitor";
-import { fetchContestForImport } from "./accoding/import";
+import { fetchContestSnapshotForImport } from "./accoding/import";
+import { syncContest } from "./workspace/contest";
 import * as fs from "node:fs/promises";
 import path from "node:path";
 import os from "node:os";
@@ -180,14 +181,23 @@ export async function activate(context: vscode.ExtensionContext) {
               : "题库";
           if (!map.has(key)) map.set(key, []);
           map.get(key)!.push({
-            label: `${b.problem.label} ${b.problem.title}`,
+            label: `${b.problem.label} ${b.problem.title}${b.unavailable ? " [已移除]" : ""}`,
             session: { root: f.uri.fsPath, binding: b },
           });
         }
         if (!map.size) continue;
         groups.push({
           label: f.name,
-          children: [...map].map(([label, children]) => ({ label, children })),
+          children: [...map].map(([label, children]) => ({
+            label,
+            children: children.sort((a, b) => {
+              const left = a.session!.binding.problem.target;
+              const right = b.session!.binding.problem.target;
+              return left.kind === "contest" && right.kind === "contest"
+                ? left.contestOrder - right.contestOrder
+                : 0;
+            }),
+          })),
         });
       }
       return groups;
@@ -209,14 +219,14 @@ export async function activate(context: vscode.ExtensionContext) {
     if (!active) throw new Error("请先导入或打开题目。");
     return active;
   }
-  async function refreshActive() {
-    const s = requireActive();
+  async function saveCaseDocuments(root: string, bindings: Binding[]) {
     const files = new Set(
-      s.binding.cases
+      bindings
+        .flatMap((b) => b.cases)
         .flatMap((c) =>
           [c.inputFile, c.expectedOutputFile].filter((x): x is string => !!x),
         )
-        .map((file) => path.resolve(s.root, file)),
+        .map((file) => path.resolve(root, file)),
     );
     for (const document of vscode.workspace.textDocuments) {
       if (
@@ -227,6 +237,10 @@ export async function activate(context: vscode.ExtensionContext) {
       )
         throw new Error("用例文件未能保存，已取消操作以保留草稿。");
     }
+  }
+  async function refreshActive() {
+    const s = requireActive();
+    await saveCaseDocuments(s.root, [s.binding]);
     s.binding = await store(s.root).read(s.binding.bindingId);
     return s;
   }
@@ -363,12 +377,16 @@ export async function activate(context: vscode.ExtensionContext) {
     const target = parseImport(input, mode);
     const root = await chooseRoot();
     if (!root) return;
-    const problems =
-      target.kind === "problemset"
-        ? [await new ProblemsetAdapter(client).fetch(target.id)]
-        : await fetchContestForImport(client, target.id, (message) =>
+    const snapshot =
+      target.kind === "contest"
+        ? await fetchContestSnapshotForImport(client, target.id, (message) =>
             output.appendLine(message),
-          );
+          )
+        : undefined;
+    const problems = snapshot?.problems ?? [
+      await new ProblemsetAdapter(client).fetch(target.id),
+    ];
+    if (snapshot) await store(root).contestRoster(snapshot.id);
     const picked =
       target.kind === "problemset"
         ? problems
@@ -391,6 +409,7 @@ export async function activate(context: vscode.ExtensionContext) {
       );
       first ??= b;
     }
+    if (snapshot) await store(root).recordContest(snapshot);
     treeChange.fire();
     if (first) await show({ root, binding: first });
   }
@@ -400,7 +419,7 @@ export async function activate(context: vscode.ExtensionContext) {
       if (f.uri.scheme !== "file") continue;
       for (const b of await store(f.uri.fsPath).list())
         all.push({
-          label: `${b.problem.label} ${b.problem.title}`,
+          label: `${b.problem.label} ${b.problem.title}${b.unavailable ? " [已移除]" : ""}`,
           description: `${f.name} · ${b.bindingId}`,
           session: { root: f.uri.fsPath, binding: b },
         });
@@ -667,6 +686,8 @@ export async function activate(context: vscode.ExtensionContext) {
     try {
       await workbench.flush();
       s = await refreshActive();
+      if (s.binding.unavailable)
+        throw Error("此题已从比赛移除，仍可本地练习；请同步确认恢复后再交题。");
       const identity = await ensureUser();
       account = identity.id;
       const unresolved = (
@@ -827,29 +848,27 @@ export async function activate(context: vscode.ExtensionContext) {
         ),
       );
     } else {
-      const problems = await fetchContestForImport(
+      const snapshot = await fetchContestSnapshotForImport(
         client,
         t.contestId,
         (message) => output.appendLine(message),
       );
-      for (const b of await store(s.root).list()) {
-        if (
-          b.problem.target.kind !== "contest" ||
-          b.problem.target.contestId !== t.contestId ||
-          (!all && b.bindingId !== s.binding.bindingId)
-        )
-          continue;
-        const p = problems.find(
-          (p) => p.target.problemId === b.problem.target.problemId,
-        );
-        if (p) {
-          const updated = await store(s.root).sync(
-            b,
-            await cacheProblemImages(p, s.root, loadImages),
-          );
-          if (b.bindingId === s.binding.bindingId) s.binding = updated;
-        }
-      }
+      const workspace = store(s.root);
+      const affected = (await workspace.list()).filter(
+        (b) =>
+          b.problem.target.kind === "contest" &&
+          b.problem.target.contestId === t.contestId &&
+          (all || b.bindingId === s.binding.bindingId),
+      );
+      await saveCaseDocuments(s.root, affected);
+      const updated = await syncContest(
+        workspace,
+        snapshot,
+        (p) => cacheProblemImages(p, s.root, loadImages),
+        all ? undefined : s.binding.bindingId,
+      );
+      s.binding =
+        updated.find((b) => b.bindingId === s.binding.bindingId) ?? s.binding;
     }
     await workbench.show(s.binding, s.root);
     treeChange.fire();

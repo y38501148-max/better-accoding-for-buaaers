@@ -1,7 +1,13 @@
 import * as cheerio from "cheerio";
 import { z } from "zod";
 import { AccodingClient, ApiError } from "./client";
-import { ORIGIN, idSchema, type Problem, type Target } from "../model";
+import {
+  ORIGIN,
+  idSchema,
+  type Problem,
+  type Target,
+  type ContestSnapshot,
+} from "../model";
 import { cleanHtml, extractSamples } from "../problems/statement";
 const userSchema = z.object({ id: idSchema, nickname: z.string().optional() });
 type ReadOptions = { retries?: number; timeoutMs?: number };
@@ -65,6 +71,9 @@ const settingsSchema = z.object({
 export class ContestAdapter {
   constructor(private client: AccodingClient) {}
   async fetch(id: string, options?: ReadOptions): Promise<Problem[]> {
+    return (await this.snapshot(id, options)).problems;
+  }
+  async snapshot(id: string, options?: ReadOptions): Promise<ContestSnapshot> {
     id = idSchema.parse(id);
     const parsed = contestSchema.safeParse(
       await this.client.json(`/api/contests/${id}`, options),
@@ -76,7 +85,7 @@ export class ContestAdapter {
     );
     if (new Set(problems.map((p) => p.id)).size !== problems.length)
       throw new ApiError("protocol", "比赛出现重复题目 ID，无法安全映射题序。");
-    return problems.map((p, index) => {
+    const mapped: Problem[] = problems.map((p, index) => {
       let raw: unknown;
       try {
         raw = JSON.parse(p.test_setting);
@@ -112,6 +121,13 @@ export class ContestAdapter {
             !["0", "", 0, false].includes(s.special_compared as string)),
       };
     });
+    return {
+      id: parsed.data.id,
+      title: parsed.data.title,
+      startTime: parsed.data.start_time,
+      endTime: parsed.data.end_time,
+      problems: mapped,
+    };
   }
   async submit(
     target: Extract<Target, { kind: "contest" }>,

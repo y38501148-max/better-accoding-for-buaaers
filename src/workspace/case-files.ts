@@ -83,6 +83,7 @@ function contents(binding: Binding) {
       statementFormat: binding.problem.statement.format,
       fetchedAt: binding.fetchedAt,
       statementHash: hash(binding.problem.statement.content),
+      unavailable: binding.unavailable,
     },
     null,
     2,

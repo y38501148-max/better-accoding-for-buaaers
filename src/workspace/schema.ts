@@ -31,4 +31,7 @@ export const bindingSchema = z.object({
   tombstones: z.array(z.string()),
   deletedCases: z.array(caseSchema).optional(),
   fileHashes: z.record(z.string()).optional(),
+  unavailable: z
+    .object({ reason: z.literal("removed"), checkedAt: z.string() })
+    .optional(),
 });

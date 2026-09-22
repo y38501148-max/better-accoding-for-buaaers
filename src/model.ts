@@ -39,6 +39,13 @@ export interface Problem {
   memoryLimit?: string;
   special: boolean;
 }
+export interface ContestSnapshot {
+  id: string;
+  title: string;
+  startTime?: string;
+  endTime?: string;
+  problems: Problem[];
+}
 export const caseSchema = z.object({
   id: z.string().regex(/^[a-zA-Z0-9-]+$/),
   name: z.string().max(200),
@@ -68,6 +75,7 @@ export interface Binding {
   tombstones: string[];
   deletedCases?: TestCase[];
   fileHashes?: Record<string, string>;
+  unavailable?: { reason: "removed"; checkedAt: string };
 }
 export interface Session {
   root: string;

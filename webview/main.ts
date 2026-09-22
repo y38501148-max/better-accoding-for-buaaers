@@ -383,6 +383,13 @@ function render() {
     );
     return;
   }
+  const submitButton = app.querySelector<HTMLButtonElement>(
+    '[data-action="submit"]',
+  )!;
+  submitButton.disabled = !!binding.unavailable;
+  submitButton.title = binding.unavailable
+    ? "此题已移除；同步确认恢复后才可交题"
+    : "向当前来源提交关联源码";
   document.querySelector("#title")!.textContent = binding.problem.title;
   document.querySelector("#context")!.textContent =
     `${binding.problem.target.kind === "contest" ? `比赛 ${binding.problem.target.contestId} · ${binding.problem.label}` : "题库"} / #${binding.problem.target.problemId}`;
@@ -403,6 +410,14 @@ function render() {
     b.tabIndex = b.dataset.tab === tab ? 0 : -1;
   });
   content.replaceChildren();
+  if (binding.unavailable) {
+    const note = el(
+      "p",
+      "此题已从比赛移除。代码和用例已保留，可继续本地练习；同步确认恢复后才可交题。",
+    );
+    note.className = "notice";
+    content.append(note);
+  }
   if (tab === "statement") {
     const limits = el("div");
     limits.className = "limits";
