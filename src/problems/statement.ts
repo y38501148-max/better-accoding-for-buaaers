@@ -3,6 +3,37 @@ import sanitize from "sanitize-html";
 import * as cheerio from "cheerio";
 import type { Sample } from "../model";
 const markdown = new MarkdownIt({ html: true, linkify: false });
+// Keep TeX opaque to Markdown: \% must reach KaTeX as \%, not a comment.
+markdown.inline.ruler.before("escape", "math_source", (state, silent) => {
+  const delimiters = [
+    ["$$", "$$"],
+    ["$", "$"],
+    ["\\(", "\\)"],
+    ["\\[", "\\]"],
+  ];
+  const pair = delimiters.find(([left]) =>
+    state.src.startsWith(left, state.pos),
+  );
+  if (!pair) return false;
+  const [left, right] = pair;
+  const start = state.pos + left.length;
+  let end = start;
+  while ((end = state.src.indexOf(right, end)) !== -1 && end < state.posMax) {
+    let slashes = 0;
+    for (let i = end - 1; i >= start && state.src[i] === "\\"; i--) slashes++;
+    if (slashes % 2 === 0) break;
+    end += right.length;
+  }
+  if (end < start || end + right.length > state.posMax) return false;
+  if (!silent) {
+    const token = state.push("math_source", "", 0);
+    token.content = state.src.slice(state.pos, end + right.length);
+  }
+  state.pos = end + right.length;
+  return true;
+});
+markdown.renderer.rules.math_source = (tokens, index) =>
+  markdown.utils.escapeHtml(tokens[index].content);
 export function cleanHtml(html: string, baseUrl: string): string {
   return sanitize(html, {
     allowedTags: [
