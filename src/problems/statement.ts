@@ -81,7 +81,12 @@ export function renderStatement(
   );
 }
 function sampleHeading(text: string): "input" | "expected" | undefined {
-  const t = text.replace(/[\s:：#\d（）()_-]/g, "").toLowerCase();
+  // Authors often typeset sample numbers as inline math, e.g. 输入样例 $1$.
+  // Unwrap only numeric math so unrelated formula headings remain unrelated.
+  const t = text
+    .replace(/\$\s*(\d+)\s*\$/g, "$1")
+    .replace(/[\s:：#\d（）()_-]/g, "")
+    .toLowerCase();
   if (
     /^(输入样例|样例输入|输入示例|示例输入|sampleinput|inputsample|exampleinput)$/.test(
       t,

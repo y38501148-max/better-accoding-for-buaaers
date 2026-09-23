@@ -5,6 +5,7 @@ import { execFileSync } from "node:child_process";
 import path from "node:path";
 import { WorkspaceStore, newCase, safePath } from "../../src/workspace/store";
 import { problem } from "../fixtures/synthetic";
+import { commitCaseFiles } from "../../src/workspace/case-files";
 import * as disk from "../../src/workspace/fs";
 // Filesystem transactions and process startup can exceed 5 s on shared Windows runners.
 vi.setConfig({ testTimeout: 20000, hookTimeout: 20000 });
@@ -356,4 +357,58 @@ it("migrates old strict cases once and preserves an explicit strict selection af
   expect(
     (await new WorkspaceStore(root).read(b.bindingId)).cases[0].comparison,
   ).toBe("exact");
+});
+it("repairs empty numbered sample caches without replacing custom cases, edited samples or tombstones", async () => {
+  const initial = await store.import({
+    ...structuredClone(problem),
+    samples: [],
+    statement: {
+      ...problem.statement,
+      content: [1, 2, 3]
+        .map(
+          (n) =>
+            `### 输入样例 $${n}$\n\n    input ${n}\n\n### 输出样例 $${n}$\n\n    output ${n}\n`,
+        )
+        .join("\n"),
+    },
+    warnings: ["公开样例未能完整配对，请检查题面并手动补充用例。"],
+  });
+  const previous = structuredClone(initial);
+  const previousJSON = await fs.readFile(
+    path.join(root, ".better-accoding/bindings", initial.bindingId + ".json"),
+    "utf8",
+  );
+  // Reproduce an older cache that has no parsed samples but contains user edits.
+  initial.cases = [
+    { ...newCase("custom"), input: "my input", expected: "my output" },
+    {
+      ...newCase("edited"),
+      source: "sample",
+      upstreamSampleKey: "sample-1",
+      locallyModified: true,
+      input: "edited input",
+      expected: "edited output",
+    },
+  ];
+  initial.tombstones = ["sample-2"];
+  await commitCaseFiles(root, initial, previous, previousJSON);
+  await fs.writeFile(path.join(root, initial.sourceFile), "USER SOURCE");
+  const repaired = await new WorkspaceStore(root).read(initial.bindingId);
+  expect(repaired.problem.samples).toHaveLength(3);
+  expect(repaired.problem.warnings).toEqual([]);
+  expect(repaired.cases.map((c) => c.input)).toEqual([
+    "my input",
+    "edited input",
+    "input 3\n",
+  ]);
+  expect(repaired.cases[2].expected).toBe("output 3\n");
+  expect(
+    await fs.readFile(path.join(root, repaired.cases[2].inputFile!), "utf8"),
+  ).toBe("input 3\n");
+  expect(await fs.readFile(path.join(root, repaired.sourceFile), "utf8")).toBe(
+    "USER SOURCE",
+  );
+  const again = await new WorkspaceStore(root).read(initial.bindingId);
+  expect(again.revision).toBe(repaired.revision);
+  expect(again.cases).toEqual(repaired.cases);
 });

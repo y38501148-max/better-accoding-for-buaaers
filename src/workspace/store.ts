@@ -132,7 +132,7 @@ export class WorkspaceStore {
       binding.comparisonDefaultsVersion = 1;
       binding.revision++;
     }
-    const repairedSamples = this.restoreOutputOnlySamples(binding);
+    const repairedSamples = this.restoreMissingSamples(binding);
     if (repairedSamples) binding.revision++;
     if (!binding.fileHashes) {
       // Back up the original format before the first file-model transaction.
@@ -166,18 +166,13 @@ export class WorkspaceStore {
     }
     return binding;
   }
-  private restoreOutputOnlySamples(binding: Binding): boolean {
+  private restoreMissingSamples(binding: Binding): boolean {
     if (binding.problem.samples.length) return false;
     const parsed = extractSamples(
       binding.problem.statement.format,
       binding.problem.statement.content,
     );
-    if (
-      !parsed.samples.length ||
-      parsed.warnings.length ||
-      parsed.samples.some((sample) => sample.input !== "")
-    )
-      return false;
+    if (!parsed.samples.length || parsed.warnings.length) return false;
     binding.problem.samples = parsed.samples;
     binding.problem.warnings = binding.problem.warnings.filter(
       (warning) =>
@@ -192,10 +187,10 @@ export class WorkspaceStore {
       binding.cases.push({
         ...newCase(`样例 ${sample.key.replace("sample-", "")}`),
         source: "sample",
-        input: "",
+        input: sample.input,
         expected: sample.expected,
         upstreamSampleKey: sample.key,
-        baseline: { input: "", expected: sample.expected },
+        baseline: { input: sample.input, expected: sample.expected },
       });
     }
     return true;
