@@ -18,7 +18,7 @@ it("preserves the escaped remainder operator through Markdown and renders its ri
   expect(rendered(".katex-html").text()).toBe("x%m");
 });
 it.each([
-  String.raw`$x\_i + \{a,b\} + \$5$`,
+  String.raw`$x_i + \{a,b\} + \$5$`,
   String.raw`$$\begin{matrix}a&b\\c&d\end{matrix}$$`,
   String.raw`\(x\%m\)`,
   String.raw`\[x\%m\]`,
@@ -51,4 +51,27 @@ it("leaves unmatched delimiters readable", () => {
       .load(renderStatement("markdown", "before $x and after", base))("p")
       .text(),
   ).toBe("before $x and after");
+});
+
+it("decodes Accoding subscripts and sum limits without losing the remainder operand", () => {
+  const source = String.raw`$\sum\_{i=1}^{n}|x\_i-p| + x\%m$`;
+  const text = cheerio
+    .load(renderStatement("markdown", source, base))("p")
+    .text();
+  expect(text).toBe(String.raw`$\sum_{i=1}^{n}|x_i-p| + x\%m$`);
+  const math = cheerio.load(
+    katex.renderToString(text.slice(1, -1), { trust: false }),
+  );
+  expect(math("msubsup")).toHaveLength(1);
+  expect(math("msub")).toHaveLength(1);
+  expect(math(".katex-html").text()).toContain("x%m");
+});
+it("does not decode underscores in code or consume an even backslash run", () => {
+  const source =
+    "`x\\_i`\n\n    x\\_i\n\n" +
+    String.raw`$$\begin{matrix}a\\_b\end{matrix}$$`;
+  const $ = cheerio.load(renderStatement("markdown", source, base));
+  expect($("p code").text()).toBe(String.raw`x\_i`);
+  expect($("pre code").text()).toBe("x\\_i\n");
+  expect($("p").last().text()).toContain(String.raw`a\\_b`);
 });

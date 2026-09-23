@@ -124,6 +124,7 @@ export async function activate(context: vscode.ExtensionContext) {
   let polling: AbortController | undefined;
   let submitting = false;
   let switching = false;
+  let syncing = false;
   const stores = new Map<string, WorkspaceStore>();
   const results = new Map<string, JudgeResult>();
   const deleted = new Map<string, TestCase[]>();
@@ -972,44 +973,68 @@ export async function activate(context: vscode.ExtensionContext) {
   }
   async function sync(all = false) {
     trusted();
-    await workbench.flush();
-    const s = await refreshActive();
-    const t = s.binding.problem.target;
-    const loadImages = imageLoader(client);
-    if (t.kind === "problemset") {
-      s.binding = await store(s.root).sync(
-        s.binding,
-        await cacheProblemImages(
-          await new ProblemsetAdapter(client).fetch(t.problemId),
-          s.root,
-          loadImages,
-        ),
-      );
-    } else {
-      const snapshot = await fetchContestSnapshotForImport(
-        client,
-        t.contestId,
-        (message) => output.appendLine(message),
-      );
-      const workspace = store(s.root);
-      const affected = (await workspace.list()).filter(
-        (b) =>
-          b.problem.target.kind === "contest" &&
-          b.problem.target.contestId === t.contestId &&
-          (all || b.bindingId === s.binding.bindingId),
-      );
-      await saveCaseDocuments(s.root, affected);
-      const updated = await syncContest(
-        workspace,
-        snapshot,
-        (p) => cacheProblemImages(p, s.root, loadImages),
-        all ? undefined : s.binding.bindingId,
-      );
-      s.binding =
-        updated.find((b) => b.bindingId === s.binding.bindingId) ?? s.binding;
+    if (syncing) throw new Error("正在更新题目，请稍候。");
+    const s = requireActive();
+    syncing = true;
+    let message = "更新未完成，已保留当前题面。";
+    const report = (busy: boolean, text: string) => {
+      if (active === s)
+        workbench.post({
+          type: "problemUpdate",
+          root: s.root,
+          bindingId: s.binding.bindingId,
+          busy,
+          message: text,
+        });
+    };
+    report(true, "正在获取最新题面…");
+    try {
+      await workbench.flush();
+      if (active !== s) throw new Error("题目已切换，请重新点击更新。");
+      await refreshActive();
+      const t = s.binding.problem.target;
+      const loadImages = imageLoader(client);
+      if (t.kind === "problemset") {
+        s.binding = await store(s.root).sync(
+          s.binding,
+          await cacheProblemImages(
+            await new ProblemsetAdapter(client).fetch(t.problemId),
+            s.root,
+            loadImages,
+          ),
+        );
+      } else {
+        const snapshot = await fetchContestSnapshotForImport(
+          client,
+          t.contestId,
+          (message) => output.appendLine(message),
+        );
+        const workspace = store(s.root);
+        const affected = (await workspace.list()).filter(
+          (b) =>
+            b.problem.target.kind === "contest" &&
+            b.problem.target.contestId === t.contestId &&
+            (all || b.bindingId === s.binding.bindingId),
+        );
+        await saveCaseDocuments(s.root, affected);
+        const updated = await syncContest(
+          workspace,
+          snapshot,
+          (p) => cacheProblemImages(p, s.root, loadImages),
+          all ? undefined : s.binding.bindingId,
+        );
+        s.binding =
+          updated.find((b) => b.bindingId === s.binding.bindingId) ?? s.binding;
+      }
+      if (active === s) await workbench.show(s.binding, s.root);
+      treeChange.fire();
+      message = s.binding.unavailable
+        ? "当前比赛暂未提供此题，已保留缓存。"
+        : "已更新题面、数据范围及样例。";
+    } finally {
+      syncing = false;
+      report(false, message);
     }
-    await workbench.show(s.binding, s.root);
-    treeChange.fire();
   }
   async function bindFile() {
     trusted();

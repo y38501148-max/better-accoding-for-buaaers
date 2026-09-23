@@ -42,6 +42,8 @@ let submissionStatus = "";
 let conflict: Binding | undefined;
 let sourceStale = false,
   configurationStale = false;
+let updatingProblem = false;
+let updateMessage = "";
 let debounce: ReturnType<typeof setTimeout> | undefined;
 const app = document.querySelector<HTMLDivElement>("#app")!;
 const navButton = (
@@ -63,7 +65,7 @@ app.innerHTML = `
   <div class="rail-group">
     ${navButton("plus", "importMenu", "导入", "按题号、比赛或链接导入")}
     ${navButton("list", "selectProblem", "题单", "切换题目")}
-    ${navButton("refresh", "syncProblem", "同步", "更新题面，保留本地修改")}
+    ${navButton("refresh", "syncProblem", "更新", "从 Accoding 获取最新题面、范围和样例")}
     ${navButton("stop", "cancelRun", "停止", "停止运行与查询；不会撤回已发送的提交")}
   </div>
   <div class="rail-bottom">${navButton("account", "login", "登录", "登录 Accoding / 切换账号")}${navButton("settings", "settings", "设置", "设置与账号")}</div>
@@ -72,7 +74,8 @@ app.innerHTML = `
   <header class="problem-header">
     <div class="breadcrumb"><span>Accoding</span><span class="breadcrumb-divider">/</span><span id="context">工作台</span><button class="header-link" data-action="openOnWebsite" title="在 Accoding 打开" aria-label="在原站打开">↗</button></div>
     <button id="problem-picker" class="problem-picker" data-action="selectContestProblem" title="按题序选择题目" aria-label="选择题目"><span id="problem-picker-label">选择题目</span>${icon("chevron")}</button>
-    <h1 id="title">开始一道新题</h1>
+    <div class="title-row"><h1 id="title">开始一道新题</h1><button id="update-problem" data-action="syncProblem" title="从 Accoding 获取最新题面、数据范围及样例，保留代码与本地用例修改" aria-label="更新题目">${icon("refresh")}<span>更新题目</span></button></div>
+    <div id="problem-update-status" role="status" aria-live="polite"></div>
     <div class="file-binding">${icon("file")}<span id="source">关联源码将在右侧打开</span><span class="binding-dot"></span><span>原生编辑器</span></div>
     <div class="tabs" role="tablist" aria-label="题目工作台">
       <button data-tab="statement" role="tab">${icon("book")}<span>题面</span></button>
@@ -335,6 +338,7 @@ async function action(command: string, caseId?: string) {
   try {
     if (conflict && command !== "cancelRun")
       throw new Error("请先解决用例冲突。");
+    if (command === "syncProblem" && updatingProblem) return;
     if (command !== "cancelRun") await flush();
     if (command === "judge" || command === "runTestCase") tab = "tests";
     api.postMessage({
@@ -379,6 +383,24 @@ app.querySelector(".tabs")!.addEventListener("keydown", (event) => {
   tabs[next].click();
   tabs[next].focus();
 });
+function renderUpdateState() {
+  for (const b of app.querySelectorAll<HTMLButtonElement>(
+    '[data-action="syncProblem"]',
+  ))
+    b.disabled = !binding || updatingProblem;
+  document.querySelector("#update-problem span")!.textContent = updatingProblem
+    ? "更新中…"
+    : "更新题目";
+  const timestamp = binding
+    ? `题面更新于 ${new Date(binding.fetchedAt).toLocaleString()}`
+    : "";
+  document.querySelector("#problem-update-status")!.textContent = [
+    updateMessage,
+    timestamp,
+  ]
+    .filter(Boolean)
+    .join(" · ");
+}
 function render() {
   for (const b of app.querySelectorAll<HTMLButtonElement>("nav button"))
     b.disabled =
@@ -386,6 +408,7 @@ function render() {
       !["importMenu", "selectProblem", "settings", "login"].includes(
         b.dataset.action!,
       );
+  renderUpdateState();
   if (!binding) {
     content.replaceChildren(
       el("p", "从操作栏“导入”添加题目，或从“题单”打开已缓存的题目。"),
@@ -813,6 +836,8 @@ window.addEventListener("message", (event) => {
     sourceStale = false;
     configurationStale = false;
     if (changed) {
+      updatingProblem = false;
+      updateMessage = "";
       submissions = [];
       uncertainSubmissions = [];
       submissionStatus = "";
@@ -898,6 +923,14 @@ window.addEventListener("message", (event) => {
     submissionStatus = m.status ?? "";
     if (m.focus !== false) tab = "submissions";
     if (tab === "submissions") render();
+  } else if (
+    m.type === "problemUpdate" &&
+    m.root === root &&
+    m.bindingId === binding?.bindingId
+  ) {
+    updatingProblem = m.busy;
+    updateMessage = m.message ?? "";
+    renderUpdateState();
   } else if (m.type === "notice") {
     document.querySelector("#summary")!.textContent = m.text;
   } else if (m.type === "addCase") createCase();

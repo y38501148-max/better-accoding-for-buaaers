@@ -27,7 +27,13 @@ markdown.inline.ruler.before("escape", "math_source", (state, silent) => {
   if (end < start || end + right.length > state.posMax) return false;
   if (!silent) {
     const token = state.push("math_source", "", 0);
-    token.content = state.src.slice(state.pos, end + right.length);
+    // Accoding authors escape subscripts for its Markdown stage (a\_i).
+    // Decode only that convention, preserving TeX escapes such as \%.
+    token.content = state.src
+      .slice(state.pos, end + right.length)
+      .replace(/(\\+)_/g, (match, slashes: string) =>
+        slashes.length % 2 ? slashes.slice(1) + "_" : match,
+      );
   }
   state.pos = end + right.length;
   return true;

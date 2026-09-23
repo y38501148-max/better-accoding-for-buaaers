@@ -412,3 +412,33 @@ it("repairs empty numbered sample caches without replacing custom cases, edited 
   expect(again.revision).toBe(repaired.revision);
   expect(again.cases).toEqual(repaired.cases);
 });
+it("updates statement and data ranges while preserving source and edited test cases", async () => {
+  let b = await store.import(problem);
+  await fs.writeFile(
+    path.join(root, b.sourceFile),
+    "UNSAVED-IN-EDITOR-SOURCE-ON-DISK",
+  );
+  b.cases[0].input = "my edited sample\n";
+  b = await store.saveCases(b.bindingId, b.revision, b.cases);
+  const fresh = {
+    ...structuredClone(problem),
+    title: "Updated title",
+    statement: { ...problem.statement, content: "## Input\n$n \\le 10^5$\n" },
+    timeLimit: "2000",
+    samples: [
+      { key: "sample-1", input: "new sample\n", expected: "new answer\n" },
+    ],
+  };
+  const updated = await store.sync(b, fresh);
+  expect(updated.problem.statement.content).toBe(fresh.statement.content);
+  expect(updated.problem.timeLimit).toBe("2000");
+  expect(updated.problem.title).toBe("Updated title");
+  expect(updated.cases[0].input).toBe("my edited sample\n");
+  expect(updated.cases[0].baseline).toEqual({
+    input: "new sample\n",
+    expected: "new answer\n",
+  });
+  expect(await fs.readFile(path.join(root, b.sourceFile), "utf8")).toBe(
+    "UNSAVED-IN-EDITOR-SOURCE-ON-DISK",
+  );
+});

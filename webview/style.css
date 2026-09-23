@@ -832,3 +832,30 @@ main {
   color: var(--vscode-editor-foreground);
   white-space: pre-wrap;
 }
+
+.title-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.title-row h1 {
+  flex: 1;
+  min-width: 0;
+}
+#update-problem {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  flex-shrink: 0;
+  white-space: nowrap;
+  font-size: 12px;
+}
+#update-problem svg {
+  width: 14px;
+  height: 14px;
+}
+#problem-update-status {
+  color: var(--muted);
+  font-size: 11px;
+  margin-bottom: 8px;
+}
