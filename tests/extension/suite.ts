@@ -1,4 +1,5 @@
 import * as vscode from "vscode";
+import { withLanguagePick } from "./quick-pick";
 import assert from "node:assert/strict";
 import fs from "node:fs/promises";
 import path from "node:path";
@@ -110,12 +111,58 @@ export async function run() {
     path.join(root, binding.sourceFile),
     '#include <stdio.h>\nint main(void){int a,b;scanf("%d%d",&a,&b);printf("%d\\n",a+b);return 0;}\n',
   );
-  await api.runTestCase(binding.cases[0].id);
+  await withLanguagePick(() => api.runTestCase(binding.cases[0].id));
   assert.equal((await store.read(binding.bindingId)).cases[0].input, "3 4\n");
   assert.equal(
     api.getResult()?.cases[0].stdout.replace(/\r\n/g, "\n"),
     "7\n",
     "Immediate run used latest native-editor input",
+  );
+  const cResult = api.getResult();
+  await withLanguagePick(() => api.runTestCase(binding.cases[0].id), "cancel");
+  assert.equal(
+    api.getResult(),
+    cResult,
+    "Cancelling language selection does not run",
+  );
+  assert.equal(api.getActive().binding.sourceFile, binding.sourceFile);
+  const cppSource = path.join(root, "problems/0/main.cpp");
+  const cppDocument = await vscode.workspace.openTextDocument(cppSource);
+  const cppEditor = await vscode.window.showTextDocument(cppDocument);
+  const cppChange = new vscode.WorkspaceEdit();
+  cppChange.replace(
+    cppDocument.uri,
+    new vscode.Range(
+      cppDocument.positionAt(0),
+      cppDocument.positionAt(cppDocument.getText().length),
+    ),
+    "#include <iostream>\nint main(){int a,b;std::cin>>a>>b;std::cout<<a+b;return 0;}\n",
+  );
+  assert(await vscode.workspace.applyEdit(cppChange));
+  assert(cppEditor.document.isDirty);
+  await withLanguagePick(() => api.runTestCase(binding.cases[0].id), "next");
+  assert.equal(api.getActive().binding.sourceFile, "problems/0/main.cpp");
+  assert.equal(
+    api.getResult()?.cases[0].stdout,
+    "7",
+    "C++ choice runs unsaved C++ source",
+  );
+  assert.equal(api.getResult()?.compilation.exitCode, 0);
+  assert.equal(
+    cppEditor.document.isDirty,
+    false,
+    "C++ source saved before run",
+  );
+  assert.equal(vscode.window.activeTextEditor?.document.uri.fsPath, cppSource);
+  await withLanguagePick(() => api.runTestCase(binding.cases[0].id), "next");
+  assert.equal(
+    api.getActive().binding.sourceFile,
+    binding.sourceFile,
+    "Can switch back to C",
+  );
+  assert.equal(api.getResult()?.cases[0].stdout.replace(/\r\n/g, "\n"), "7\n");
+  console.log(
+    "Native language picker: C/C++ selection, cancellation, dirty source flush and switch back passed.",
   );
   console.log(
     "Native case editor: persistent .in file, unsaved edit flushed before Judge, latest input reached stdin.",
@@ -151,7 +198,7 @@ export async function run() {
       2,
       "Switching reuses exactly two columns",
     );
-    const active = vscode.window.activeTextEditor!;
+    const active: vscode.TextEditor = vscode.window.activeTextEditor!;
     assert.equal(active.viewColumn, vscode.ViewColumn.Two);
     assert.equal(
       active.document.uri.fsPath,

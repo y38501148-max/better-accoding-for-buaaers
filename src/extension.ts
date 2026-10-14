@@ -16,11 +16,8 @@ import * as fs from "node:fs/promises";
 import path from "node:path";
 import os from "node:os";
 import { z } from "zod";
-import { CookieJar } from "tough-cookie";
-import { AccodingClient, ApiError } from "./accoding/client";
+import { AccountSession } from "./auth/session";
 import {
-  login,
-  currentUser,
   ContestAdapter,
   ProblemsetAdapter,
   type Submission,
@@ -49,6 +46,11 @@ import {
 } from "./judge/judge";
 import { runProcess } from "./judge/process";
 import { Workbench } from "./views/panel";
+import {
+  localSourceChoices,
+  managedSourceFiles,
+  sourceLanguage,
+} from "./workspace/sources";
 const prefix = "betterAccoding.";
 const commandNames = [
   "login",
@@ -117,14 +119,15 @@ export async function activate(context: vscode.ExtensionContext) {
   const output = vscode.window.createOutputChannel("Better Accoding");
   const diagnostics =
     vscode.languages.createDiagnosticCollection("betterAccoding");
-  let client = new AccodingClient();
-  let user: Awaited<ReturnType<typeof currentUser>> | undefined;
   let active: Session | undefined;
   let runAbort: AbortController | undefined;
   let polling: AbortController | undefined;
   let submitting = false;
   let switching = false;
   let syncing = false;
+  const accountSession = new AccountSession(context.secrets, () =>
+    polling?.abort(),
+  );
   const stores = new Map<string, WorkspaceStore>();
   const results = new Map<string, JudgeResult>();
   const deleted = new Map<string, TestCase[]>();
@@ -286,12 +289,15 @@ export async function activate(context: vscode.ExtensionContext) {
       const binding = await store(s.root).read(s.binding.bindingId);
       const source = await safePath(s.root, binding.sourceFile);
       const sources = await Promise.all(
-        (await store(s.root).list()).map(async (b) =>
-          vscode.Uri.file(await safePath(s.root, b.sourceFile)),
+        (await store(s.root).list()).flatMap((b) =>
+          managedSourceFiles(b).map(async (file) =>
+            vscode.Uri.file(await safePath(s.root, file)),
+          ),
         ),
       );
       await workbench.open(vscode.Uri.file(source), restore, sources);
-      active = { root: s.root, binding };
+      s.binding = binding;
+      active = s;
       await vscode.commands.executeCommand(
         "setContext",
         "betterAccoding.hasActiveProblem",
@@ -316,28 +322,71 @@ export async function activate(context: vscode.ExtensionContext) {
     if (!(await doc.save())) throw new Error("源码保存失败，操作已取消。");
     return source;
   }
+  async function chooseLocalSource(s: Session) {
+    const choice = await vscode.window.showQuickPick(
+      localSourceChoices(s.binding),
+      {
+        title: "选择本次本地检测语言",
+        placeHolder:
+          "C 使用 main.c，C++ 使用 main.cpp（关联文件显示其实际路径）",
+        ignoreFocusOut: true,
+      },
+    );
+    if (!choice) return false;
+    if (active !== s) throw new Error("题目已切换，请重新运行检测。");
+    if (runAbort) throw new Error("已有评测正在进行，请先停止。");
+    if (choice.sourceFile !== s.binding.sourceFile) {
+      // Save the old editor before changing the source used for runs/submissions.
+      await saveSource(s);
+      s.binding = await store(s.root).update(
+        s.binding.bindingId,
+        s.binding.revision,
+        (b) => {
+          if (
+            sourceLanguage(b.sourceFile) !== sourceLanguage(choice.sourceFile)
+          )
+            delete b.selectedSubmissionLanguage;
+          b.sourceFile = choice.sourceFile;
+        },
+      );
+    }
+    await show(s);
+    return true;
+  }
   async function authenticate() {
     const username = await vscode.window.showInputBox({
       title: "登录 Accoding",
-      prompt: "账号（邮箱），仅保存会话，不保存密码",
+      prompt: "账号（邮箱）",
       ignoreFocusOut: true,
     });
-    if (!username) return false;
+    if (!username?.trim()) return false;
     const password = await vscode.window.showInputBox({
       title: "登录 Accoding",
-      prompt: "密码",
+      prompt: "密码（可选择在本机安全保存并自动登录）",
       password: true,
       ignoreFocusOut: true,
     });
-    if (password === undefined) return false;
-    const candidate = await login(username, password);
-    client.cancel();
-    polling?.abort();
-    client = candidate.client;
-    user = candidate.user;
-    await context.secrets.store(
-      "accoding.session",
-      JSON.stringify(await client.jar.serialize()),
+    if (!password) return false;
+    const remember = await vscode.window.showQuickPick(
+      [
+        {
+          label: "记住账号密码并自动登录",
+          description:
+            "保存在本机 VS Code SecretStorage，会话过期时自动重新登录",
+          remember: true,
+        },
+        {
+          label: "仅本次登录",
+          description: "只保存 Cookie，并清除之前记住的账号密码",
+          remember: false,
+        },
+      ],
+      { title: "保存登录信息", ignoreFocusOut: true },
+    );
+    if (!remember) return false;
+    await accountSession.signIn(
+      { username: username.trim(), password },
+      remember.remember,
     );
     workbench.post({
       type: "submissions",
@@ -352,19 +401,11 @@ export async function activate(context: vscode.ExtensionContext) {
     return true;
   }
   async function ensureUser() {
-    try {
-      user = await currentUser(client);
-    } catch (e) {
-      if (!(e instanceof ApiError) || e.kind !== "auth") throw e;
-      user = undefined;
-      await context.secrets.delete("accoding.session");
-      if (!(await authenticate())) throw new Error("登录已取消。");
-    }
-    await context.secrets.store(
-      "accoding.session",
-      JSON.stringify(await client.jar.serialize()),
-    );
-    return user!;
+    if (!(await accountSession.ensure()) && !(await authenticate()))
+      throw new Error("登录已取消。");
+    const identity = accountSession.user;
+    if (!identity) throw new Error("登录状态已改变，请重试。");
+    return identity;
   }
   async function importItems(mode?: "problemset" | "contest") {
     trusted();
@@ -383,14 +424,17 @@ export async function activate(context: vscode.ExtensionContext) {
     const target = parseImport(input, mode);
     const root = await chooseRoot();
     if (!root) return;
+    await ensureUser();
     const snapshot =
       target.kind === "contest"
-        ? await fetchContestSnapshotForImport(client, target.id, (message) =>
-            output.appendLine(message),
+        ? await fetchContestSnapshotForImport(
+            accountSession.client,
+            target.id,
+            (message) => output.appendLine(message),
           )
         : undefined;
     const problems = snapshot?.problems ?? [
-      await new ProblemsetAdapter(client).fetch(target.id),
+      await new ProblemsetAdapter(accountSession.client).fetch(target.id),
     ];
     if (snapshot) await store(root).contestRoster(snapshot.id);
     const picked =
@@ -407,7 +451,7 @@ export async function activate(context: vscode.ExtensionContext) {
             )
             .then((items) => items?.map((i) => i.problem));
     if (!picked?.length) return;
-    const loadImages = imageLoader(client);
+    const loadImages = imageLoader(accountSession.client);
     let first: Binding | undefined;
     for (const p of picked) {
       const b = await store(root).import(
@@ -485,7 +529,6 @@ export async function activate(context: vscode.ExtensionContext) {
     trusted();
     await workbench.flush();
     const s = await refreshActive();
-    const source = await saveSource(s);
     if (runAbort) throw new Error("已有评测正在进行，请先停止。");
     let cases = s.binding.cases;
     if (caseId)
@@ -502,9 +545,14 @@ export async function activate(context: vscode.ExtensionContext) {
     }
     if (!cases.some((c) => c.enabled))
       throw new Error("没有启用的用例，请先添加或启用用例。");
+    if (!(await chooseLocalSource(s))) return;
+    const source = await saveSource(s);
     const abort = new AbortController();
     runAbort = abort;
-    workbench.post({ type: "notice", text: "正在编译和运行…" });
+    workbench.post({
+      type: "notice",
+      text: `正在使用 ${sourceLanguage(source) === "c" ? "C" : "C++"} 编译和运行：${s.binding.sourceFile}`,
+    });
     try {
       const r = await judge(
         source,
@@ -558,6 +606,7 @@ export async function activate(context: vscode.ExtensionContext) {
     const s = await refreshActive();
     const c = await chooseCase(caseId);
     if (!c) return;
+    if (!(await chooseLocalSource(s))) return;
     const extension =
       process.platform === "darwin"
         ? "vadimcn.vscode-lldb"
@@ -644,11 +693,11 @@ export async function activate(context: vscode.ExtensionContext) {
   function sameSubmissionContext(
     s: Session,
     account: string,
-    connection = client,
+    connection = accountSession.client,
   ) {
     return (
-      client === connection &&
-      user?.id === account &&
+      accountSession.client === connection &&
+      accountSession.user?.id === account &&
       !!active &&
       sessionKey(active) === sessionKey(s)
     );
@@ -670,7 +719,7 @@ export async function activate(context: vscode.ExtensionContext) {
     status?: string,
     valid: () => boolean = () => true,
   ) {
-    const connection = client;
+    const connection = accountSession.client;
     const generation = submissionCacheGeneration;
     const attempts = await submissionAttempts(s, account);
     if (
@@ -697,7 +746,7 @@ export async function activate(context: vscode.ExtensionContext) {
     });
   }
   async function recoverSubmissions(s: Session, account: string) {
-    const connection = client;
+    const connection = accountSession.client;
     const attempts = (await submissionAttempts(s, account)).filter(isUncertain);
     for (const attempt of attempts.slice(-5)) {
       if (attempt.target.kind !== "problemset" || !attempt.sourceHash) continue;
@@ -737,7 +786,7 @@ export async function activate(context: vscode.ExtensionContext) {
     }
   }
   async function restoreSubmissions(s: Session, publish = true) {
-    const account = user?.id;
+    const account = accountSession.user?.id;
     if (!account) return;
     if (!submitting) await recoverSubmissions(s, account);
     if (publish) await postSubmissions(s, account);
@@ -778,7 +827,7 @@ export async function activate(context: vscode.ExtensionContext) {
       }
       const source = await saveSource(s);
       const code = await fs.readFile(source, "utf8");
-      const connection = client;
+      const connection = accountSession.client;
       const original = s.binding.problem.target;
       const submission = await sendSubmission(connection, original, code, {
         language: async (problem, fallback) => {
@@ -850,7 +899,7 @@ export async function activate(context: vscode.ExtensionContext) {
     if (!sameSubmissionContext(s, account) || !workbench.panel) return;
     polling?.abort();
     const abort = new AbortController();
-    const connection = client;
+    const connection = accountSession.client;
     polling = abort;
     const valid = () =>
       !abort.signal.aborted &&
@@ -911,7 +960,7 @@ export async function activate(context: vscode.ExtensionContext) {
   async function refreshSubmissions() {
     const s = requireActive();
     const identity = await ensureUser();
-    const connection = client;
+    const connection = accountSession.client;
     const generation = submissionCacheGeneration;
     const valid = () =>
       sameSubmissionContext(s, identity.id, connection) &&
@@ -992,20 +1041,23 @@ export async function activate(context: vscode.ExtensionContext) {
       await workbench.flush();
       if (active !== s) throw new Error("题目已切换，请重新点击更新。");
       await refreshActive();
+      await ensureUser();
       const t = s.binding.problem.target;
-      const loadImages = imageLoader(client);
+      const loadImages = imageLoader(accountSession.client);
       if (t.kind === "problemset") {
         s.binding = await store(s.root).sync(
           s.binding,
           await cacheProblemImages(
-            await new ProblemsetAdapter(client).fetch(t.problemId),
+            await new ProblemsetAdapter(accountSession.client).fetch(
+              t.problemId,
+            ),
             s.root,
             loadImages,
           ),
         );
       } else {
         const snapshot = await fetchContestSnapshotForImport(
-          client,
+          accountSession.client,
           t.contestId,
           (message) => output.appendLine(message),
         );
@@ -1138,11 +1190,11 @@ export async function activate(context: vscode.ExtensionContext) {
       case "logout":
         if (submitting)
           throw new Error("提交正在发送，请等待本次操作结束后退出。");
-        client.cancel();
-        polling?.abort();
-        client = new AccodingClient();
-        user = undefined;
-        await context.secrets.delete("accoding.session");
+        await accountSession.logout();
+        workbench.post({
+          type: "notice",
+          text: "已退出登录，并清除本机保存的账号密码。",
+        });
         workbench.post({
           type: "submissions",
           root: active?.root,
@@ -1550,25 +1602,16 @@ export async function activate(context: vscode.ExtensionContext) {
   );
   context.subscriptions.push({
     dispose() {
-      client.cancel();
+      accountSession.dispose();
       runAbort?.abort();
       polling?.abort();
       workbench.panel?.dispose();
     },
   });
-  const serialized = await context.secrets.get("accoding.session");
-  if (serialized) {
-    try {
-      client = new AccodingClient(await CookieJar.deserialize(serialized));
-      user = await currentUser(client);
-    } catch (e) {
-      user = undefined;
-      if (!(e instanceof ApiError) || e.kind === "auth") {
-        client = new AccodingClient();
-        await context.secrets.delete("accoding.session");
-      }
-    }
-  }
+  await accountSession.restore().catch(() => {
+    // Offline startup keeps saved credentials and cached problem access intact.
+    output.appendLine("会话恢复未完成，联网操作时将重试自动登录。");
+  });
   const last = context.workspaceState.get<{ root: string; bindingId: string }>(
     "lastBinding",
   );

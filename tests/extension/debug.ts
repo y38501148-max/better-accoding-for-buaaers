@@ -1,4 +1,5 @@
 import * as vscode from "vscode";
+import { withLanguagePick } from "./quick-pick";
 import assert from "node:assert/strict";
 import fs from "node:fs/promises";
 import path from "node:path";
@@ -90,7 +91,7 @@ export async function run() {
     },
   });
   try {
-    await api.debugTestCase(binding.cases[0].id);
+    await withLanguagePick(() => api.debugTestCase(binding.cases[0].id));
     await done;
     assert(stopped, "Source breakpoint hit");
     assert(

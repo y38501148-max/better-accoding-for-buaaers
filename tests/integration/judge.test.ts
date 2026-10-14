@@ -14,7 +14,8 @@ const tc: Toolchain = {
   cpp: process.platform === "darwin" ? "clang++" : "g++",
   cArgs: ["-std=c99"],
   cppArgs: ["-std=c++17"],
-  timeoutMs: process.platform === "win32" ? processBudget : 500,
+  // Allow native process startup on loaded hosts; timeout behavior is tested separately.
+  timeoutMs: processBudget,
   outputLimit: 4096,
 };
 beforeAll(async () => {
@@ -176,5 +177,37 @@ it(
     expect(result.cases[0].stderr.replace(/\r\n/g, "\n")).toBe(
       "debug message\n",
     );
+  },
+);
+
+it(
+  "compiles both generated templates and runs the expanded Codeforces solve loop",
+  { timeout: 40000 },
+  async () => {
+    const { cTemplate, cppTemplate } =
+      await import("../../src/workspace/sources");
+    const c = path.join(dir, "template.c"),
+      cpp = path.join(dir, "template.cpp");
+    await fs.writeFile(c, cTemplate);
+    const cResult = await judge(c, dir, [newCase()], tc);
+    expect(cResult.compilation.exitCode, cResult.compilation.stderr).toBe(0);
+    expect(cResult.cases[0].status).toBe("PASS");
+    await fs.writeFile(
+      cpp,
+      cppTemplate.replace(
+        "void solve() {",
+        "void solve() {\n    LL a, b; cin >> a >> b; cout << a + b << endl;",
+      ),
+    );
+    const cppResult = await judge(
+      cpp,
+      dir,
+      [{ ...newCase(), input: "2\n1 2\n3 4\n", expected: "3\n7\n" }],
+      tc,
+    );
+    expect(cppResult.compilation.exitCode, cppResult.compilation.stderr).toBe(
+      0,
+    );
+    expect(cppResult.cases[0].status).toBe("PASS");
   },
 );

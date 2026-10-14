@@ -442,3 +442,57 @@ it("updates statement and data ranges while preserving source and edited test ca
     "UNSAVED-IN-EDITOR-SOURCE-ON-DISK",
   );
 });
+
+it("creates both templates for C-only and C++-only problems without replacing existing files", async () => {
+  for (const [id, languages] of [
+    ["11", ["c"]],
+    ["12", ["c++"]],
+  ] as const) {
+    const base = `problems/${id}`;
+    await fs.mkdir(path.join(root, base), { recursive: true });
+    await fs.writeFile(path.join(root, base, "main.cpp"), "EXISTING CPP");
+    const b = await store.import({
+      ...problem,
+      target: { kind: "problemset", problemId: id },
+      languages: [...languages],
+    });
+    expect(b.sourceFile).toBe(
+      `${base}/main.${languages[0] === "c" ? "c" : "cpp"}`,
+    );
+    expect(
+      await fs.readFile(path.join(root, base, "main.c"), "utf8"),
+    ).toContain("int main()");
+    expect(await fs.readFile(path.join(root, base, "main.cpp"), "utf8")).toBe(
+      "EXISTING CPP",
+    );
+  }
+});
+
+it("adds a missing template to old bindings while preserving custom source and samples", async () => {
+  let b = await store.import(problem);
+  await fs.writeFile(path.join(root, "custom.cc"), "CUSTOM CPP");
+  b = await store.update(b.bindingId, b.revision, (b) => {
+    b.sourceFile = "custom.cc";
+  });
+  await fs.writeFile(path.join(root, "problems/0/main.c"), "USER C");
+  await fs.rm(path.join(root, "problems/0/main.cpp"));
+  const reloaded = await new WorkspaceStore(root).read(b.bindingId);
+  expect(reloaded).toEqual(b);
+  expect(await fs.readFile(path.join(root, "problems/0/main.c"), "utf8")).toBe(
+    "USER C",
+  );
+  expect(await fs.readFile(path.join(root, "custom.cc"), "utf8")).toBe(
+    "CUSTOM CPP",
+  );
+  const cpp = await fs.readFile(path.join(root, "problems/0/main.cpp"), "utf8");
+  expect(cpp).toContain("void solve()");
+  expect(cpp).toContain("struct Martix");
+  expect(cpp).toContain("while (T--)");
+  expect(cpp).not.toContain("$0");
+  await fs.writeFile(path.join(root, "problems/0/main.cpp"), "USER CPP");
+  await store.import(problem);
+  await store.sync(await store.read(b.bindingId), problem);
+  expect(
+    await fs.readFile(path.join(root, "problems/0/main.cpp"), "utf8"),
+  ).toBe("USER CPP");
+});

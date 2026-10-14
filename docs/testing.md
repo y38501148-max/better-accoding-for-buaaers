@@ -14,3 +14,7 @@
 `npm run test:debug` 在 macOS 的独立扩展目录安装固定版本 CodeLLDB 1.12.3，真实断点验证选定输入、变量值、继续运行输出和会话结束，2026-09-22 已通过。不会使用或修改日常 VS Code 配置。
 
 商店安装验收：发布校验完成后运行 `ACCODING_INSTALL_SOURCE=muzermat.better-accoding-for-buaaers npm run test:package`，使用独立用户/扩展目录从 Marketplace 获取扩展并验证激活、布局与原生用例运行。默认不设置该环境变量时验证本地 VSIX。
+
+2026-10-14 本机 macOS arm64，0.1.9：lint、typecheck、格式检查、41 项 unit 与 115 项 integration 通过；实际编译 C 模板与 Codeforces C++ 多组输入模板，验证旧题补齐且保留已有双语言源码及自定义关联。VS Code 1.96.4 原生宿主及干净 VSIX 安装均验证检测语言选择、取消、未保存源码保存、C/C++ 切换和双栏切题。CodeLLDB 1.12.3 验证语言选择后的 stdin、断点、变量值与继续输出通过。
+
+2026-10-14，0.1.10：58 项 unit 与 116 项 integration、lint、typecheck、包白名单检查通过。登录测试使用合成账号覆盖真实 CSRF/密码 POST 协议、Cookie 过期/损坏/缺失恢复、有效 Cookie 复用、并发合并、仅本次登录、密码错误停止重复尝试、网络失败保留凭据，以及退出/销毁和迟到登录、秘密写入之间的竞态。最低版宿主与干净 VSIX 安装验证通过。原编译测试的 500ms 进程运行预算在本机偶发超时，测试改为复用 processBudget；专门的超时测试和产品默认时限保持不变。未用用户真实密码进行线上登录测试。

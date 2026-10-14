@@ -1,4 +1,5 @@
 import * as fs from "node:fs/promises";
+import { cTemplate, cppTemplate, defaultSourceFiles } from "./sources";
 import { extractSamples } from "../problems/statement";
 import {
   readContestRoster,
@@ -113,6 +114,7 @@ export class WorkspaceStore {
       throw new Error("绑定来源不匹配。");
     await safePath(this.root, parsed.data.sourceFile);
     const binding = parsed.data;
+    await this.ensureSources(binding.problem);
     const previous = structuredClone(binding);
     const observed = this.observed.get(id);
     const metadataChanged =
@@ -218,6 +220,21 @@ export class WorkspaceStore {
       throw new Error("用例已不存在。");
     return safePath(this.root, caseFile(binding, caseId, kind));
   }
+  private async ensureSources(problem: Problem) {
+    const files = defaultSourceFiles(problem.target);
+    for (const [relative, template] of [
+      [files.c, cTemplate],
+      [files.cpp, cppTemplate],
+    ]) {
+      const file = await safePath(this.root, relative);
+      await fs.mkdir(path.dirname(file), { recursive: true });
+      try {
+        await fs.writeFile(file, template, { flag: "wx" });
+      } catch (e) {
+        if ((e as NodeJS.ErrnoException).code !== "EEXIST") throw e;
+      }
+    }
+  }
   async import(problem: Problem): Promise<Binding> {
     return this.serialize(async () => {
       problem = problemSchema.parse(problem);
@@ -227,24 +244,9 @@ export class WorkspaceStore {
       } catch (e) {
         if ((e as NodeJS.ErrnoException).code !== "ENOENT") throw e;
       }
-      const base =
-        problem.target.kind === "problemset"
-          ? `problems/${problem.target.problemId}`
-          : `contests/${problem.target.contestId}/${problem.target.problemId}`;
-      const sourceFile = `${base}/main.${problem.languages.includes("c") ? "c" : "cpp"}`;
-      const file = await safePath(this.root, sourceFile);
-      await fs.mkdir(path.dirname(file), { recursive: true });
-      try {
-        await fs.writeFile(
-          file,
-          sourceFile.endsWith(".c")
-            ? "#include <stdio.h>\n\nint main() {\n    return 0;\n}\n"
-            : "#include <iostream>\n\nint main() {\n    return 0;\n}\n",
-          { flag: "wx" },
-        );
-      } catch (e) {
-        if ((e as NodeJS.ErrnoException).code !== "EEXIST") throw e;
-      }
+      await this.ensureSources(problem);
+      const files = defaultSourceFiles(problem.target);
+      const sourceFile = problem.languages.includes("c") ? files.c : files.cpp;
       const binding: Binding = {
         schemaVersion: 2,
         comparisonDefaultsVersion: 1,
