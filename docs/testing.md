@@ -22,3 +22,5 @@
 0.1.10 云端 CI：提交 `843dc87b1a3936a47837f650fb5a3785750b6f07` 的 Windows、macOS、Linux × VS Code 1.96.4 / Stable 六项均成功：https://github.com/y38501148-max/better-accoding-for-buaaers/actions/runs/38574084090 。本机已安装 0.1.10；CodeLLDB 回归通过。
 
 2026-10-14，0.1.11：58 项单元、116 项集成测试、lint、typecheck、格式及包检查通过。原生宿主新增验证无需运行用例即可通过 C/C++ 命令打开 Codeforces C++ 模板并切回 C，干净 VSIX 安装回归通过。工作台使用原生按钮、aria-pressed、键盘焦点轮廓显示本地语言入口。
+
+0.1.11 云端 CI：提交 `410aab4cbab4a09e5da895d58235ffbc3e98dec3` 的 Windows、macOS、Linux × VS Code 1.96.4 / Stable 六项均成功：https://github.com/y38501148-max/better-accoding-for-buaaers/actions/runs/38577218719 。在独立宿主中真实点击 C++ 按钮，确认右侧 main.cpp、工作台源码路径及 aria-pressed 状态同步更新。
