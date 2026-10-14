@@ -18,3 +18,5 @@
 2026-10-14 本机 macOS arm64，0.1.9：lint、typecheck、格式检查、41 项 unit 与 115 项 integration 通过；实际编译 C 模板与 Codeforces C++ 多组输入模板，验证旧题补齐且保留已有双语言源码及自定义关联。VS Code 1.96.4 原生宿主及干净 VSIX 安装均验证检测语言选择、取消、未保存源码保存、C/C++ 切换和双栏切题。CodeLLDB 1.12.3 验证语言选择后的 stdin、断点、变量值与继续输出通过。
 
 2026-10-14，0.1.10：58 项 unit 与 116 项 integration、lint、typecheck、包白名单检查通过。登录测试使用合成账号覆盖真实 CSRF/密码 POST 协议、Cookie 过期/损坏/缺失恢复、有效 Cookie 复用、并发合并、仅本次登录、密码错误停止重复尝试、网络失败保留凭据，以及退出/销毁和迟到登录、秘密写入之间的竞态。最低版宿主与干净 VSIX 安装验证通过。原编译测试的 500ms 进程运行预算在本机偶发超时，测试改为复用 processBudget；专门的超时测试和产品默认时限保持不变。未用用户真实密码进行线上登录测试。
+
+0.1.10 云端 CI：提交 `843dc87b1a3936a47837f650fb5a3785750b6f07` 的 Windows、macOS、Linux × VS Code 1.96.4 / Stable 六项均成功：https://github.com/y38501148-max/better-accoding-for-buaaers/actions/runs/38574084090 。本机已安装 0.1.10；CodeLLDB 回归通过。

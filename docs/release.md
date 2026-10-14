@@ -22,3 +22,9 @@
 5. 等待 Marketplace 处理完成，再验证商店页面及全新安装。处理耗时以平台实际状态为准。
 
 官方依据：https://code.visualstudio.com/api/working-with-extensions/publishing-extension#create-a-publisher 。账号密码和令牌均不应写入聊天或仓库。
+
+## 0.1.10 发布记录（2026-10-14）
+
+- 已公开 GitHub 源码、标签与 VSIX： https://github.com/y38501148-max/better-accoding-for-buaaers/releases/tag/v0.1.10 。安装包与本机干净安装验证使用同一文件，本机日常 VS Code 已升级至 0.1.10。
+- 六项跨平台 CI 全部通过，提交 `843dc87b1a3936a47837f650fb5a3785750b6f07`。
+- Marketplace 暂未上传成功，管理页面仍为 0.1.8。网页的 reCAPTCHA 静态资源因本机 DNS 异常返回无效证书；通过保留 TLS 校验的单次官方资源读取恢复主脚本后，验证码子页面仍不能完成连接。未绕过验证码、关闭证书校验或修改全机网络配置，也未收到上传成功反馈。需恢复 Google 验证码域名的正常 DNS/代理后继续。
