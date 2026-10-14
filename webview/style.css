@@ -181,6 +181,33 @@ h1 {
 .problem-picker svg {
   flex-shrink: 0;
 }
+.source-selector {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+  margin: 8px 0;
+}
+.source-selector[hidden] {
+  display: none;
+}
+.source-selector button {
+  min-height: 30px;
+  padding: 4px 10px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--vscode-button-secondaryBackground, transparent);
+  color: var(--vscode-button-secondaryForeground, var(--text));
+  cursor: pointer;
+}
+.source-selector button[aria-pressed="true"] {
+  background: var(--vscode-button-background);
+  color: var(--vscode-button-foreground);
+  border-color: var(--vscode-focusBorder);
+}
+.source-selector button:focus-visible {
+  outline: 1px solid var(--vscode-focusBorder);
+  outline-offset: 2px;
+}
 .file-binding {
   display: flex;
   align-items: center;

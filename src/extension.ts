@@ -65,6 +65,8 @@ const commandNames = [
   "selectProblem",
   "selectContestProblem",
   "bindFile",
+  "useCSource",
+  "useCppSource",
   "addTestCase",
   "importTestCases",
   "duplicateTestCase",
@@ -322,16 +324,17 @@ export async function activate(context: vscode.ExtensionContext) {
     if (!(await doc.save())) throw new Error("源码保存失败，操作已取消。");
     return source;
   }
-  async function chooseLocalSource(s: Session) {
-    const choice = await vscode.window.showQuickPick(
-      localSourceChoices(s.binding),
-      {
-        title: "选择本次本地检测语言",
-        placeHolder:
-          "C 使用 main.c，C++ 使用 main.cpp（关联文件显示其实际路径）",
-        ignoreFocusOut: true,
-      },
-    );
+  async function chooseLocalSource(s: Session, language?: "c" | "cpp") {
+    const choice = language
+      ? localSourceChoices(s.binding).find(
+          (choice) => sourceLanguage(choice.sourceFile) === language,
+        )
+      : await vscode.window.showQuickPick(localSourceChoices(s.binding), {
+          title: "选择本次本地检测语言",
+          placeHolder:
+            "C 使用 main.c，C++ 使用 main.cpp（关联文件显示其实际路径）",
+          ignoreFocusOut: true,
+        });
     if (!choice) return false;
     if (active !== s) throw new Error("题目已切换，请重新运行检测。");
     if (runAbort) throw new Error("已有评测正在进行，请先停止。");
@@ -1221,6 +1224,14 @@ export async function activate(context: vscode.ExtensionContext) {
         return show(requireActive(), true);
       case "bindFile":
         return bindFile();
+      case "useCSource":
+      case "useCppSource":
+        trusted();
+        await workbench.flush();
+        return chooseLocalSource(
+          await refreshActive(),
+          command === "useCSource" ? "c" : "cpp",
+        );
       case "syncProblem":
         return sync();
       case "syncContest":

@@ -51,6 +51,21 @@ export async function run() {
     ),
     "Native source editor visible",
   );
+  await vscode.commands.executeCommand("betterAccoding.useCppSource");
+  assert.equal(api.getActive().binding.sourceFile, "problems/0/main.cpp");
+  assert(
+    vscode.window.activeTextEditor?.document.getText().includes("void solve()"),
+    "Explicit C++ button opens the Codeforces template",
+  );
+  assert.equal(
+    vscode.window.activeTextEditor?.document.uri.fsPath,
+    path.join(root, "problems/0/main.cpp"),
+  );
+  await vscode.commands.executeCommand("betterAccoding.useCSource");
+  assert.equal(api.getActive().binding.sourceFile, binding.sourceFile);
+  console.log(
+    "Persistent language commands open C++ template and switch back to C.",
+  );
   assert(
     vscode.window.tabGroups.all
       .flatMap((g) => g.tabs)

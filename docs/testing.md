@@ -20,3 +20,5 @@
 2026-10-14，0.1.10：58 项 unit 与 116 项 integration、lint、typecheck、包白名单检查通过。登录测试使用合成账号覆盖真实 CSRF/密码 POST 协议、Cookie 过期/损坏/缺失恢复、有效 Cookie 复用、并发合并、仅本次登录、密码错误停止重复尝试、网络失败保留凭据，以及退出/销毁和迟到登录、秘密写入之间的竞态。最低版宿主与干净 VSIX 安装验证通过。原编译测试的 500ms 进程运行预算在本机偶发超时，测试改为复用 processBudget；专门的超时测试和产品默认时限保持不变。未用用户真实密码进行线上登录测试。
 
 0.1.10 云端 CI：提交 `843dc87b1a3936a47837f650fb5a3785750b6f07` 的 Windows、macOS、Linux × VS Code 1.96.4 / Stable 六项均成功：https://github.com/y38501148-max/better-accoding-for-buaaers/actions/runs/38574084090 。本机已安装 0.1.10；CodeLLDB 回归通过。
+
+2026-10-14，0.1.11：58 项单元、116 项集成测试、lint、typecheck、格式及包检查通过。原生宿主新增验证无需运行用例即可通过 C/C++ 命令打开 Codeforces C++ 模板并切回 C，干净 VSIX 安装回归通过。工作台使用原生按钮、aria-pressed、键盘焦点轮廓显示本地语言入口。

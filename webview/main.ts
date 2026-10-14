@@ -76,6 +76,10 @@ app.innerHTML = `
     <button id="problem-picker" class="problem-picker" data-action="selectContestProblem" title="按题序选择题目" aria-label="选择题目"><span id="problem-picker-label">选择题目</span>${icon("chevron")}</button>
     <div class="title-row"><h1 id="title">开始一道新题</h1><button id="update-problem" data-action="syncProblem" title="从 Accoding 获取最新题面、数据范围及样例，保留代码与本地用例修改" aria-label="更新题目">${icon("refresh")}<span>更新题目</span></button></div>
     <div id="problem-update-status" role="status" aria-live="polite"></div>
+    <div class="source-selector" role="group" aria-label="本地代码语言" hidden>
+      <button data-action="useCSource" aria-pressed="false" title="打开并关联 C 源码">C · main.c</button>
+      <button data-action="useCppSource" aria-pressed="false" title="打开并关联 C++ 源码">C++ · main.cpp</button>
+    </div>
     <div class="file-binding">${icon("file")}<span id="source">关联源码将在右侧打开</span><span class="binding-dot"></span><span>原生编辑器</span></div>
     <div class="tabs" role="tablist" aria-label="题目工作台">
       <button data-tab="statement" role="tab">${icon("book")}<span>题面</span></button>
@@ -409,6 +413,7 @@ function render() {
         b.dataset.action!,
       );
   renderUpdateState();
+  app.querySelector<HTMLElement>(".source-selector")!.hidden = !binding;
   if (!binding) {
     content.replaceChildren(
       el("p", "从操作栏“导入”添加题目，或从“题单”打开已缓存的题目。"),
@@ -432,6 +437,16 @@ function render() {
   document.querySelector("#context")!.textContent =
     `${binding.problem.target.kind === "contest" ? `比赛 ${binding.problem.target.contestId} · ${label}` : "题库"} / #${binding.problem.target.problemId}`;
   document.querySelector("#source")!.textContent = binding.sourceFile;
+  const isC = /\.c$/i.test(binding.sourceFile);
+  for (const button of app.querySelectorAll<HTMLButtonElement>(
+    ".source-selector button",
+  )) {
+    const selected = (button.dataset.action === "useCSource") === isC;
+    button.setAttribute("aria-pressed", String(selected));
+    button.title = selected
+      ? `当前关联：${binding.sourceFile}`
+      : `打开并关联 ${button.dataset.action === "useCSource" ? "C" : "C++"} 源码`;
+  }
   document.querySelector("#case-count")!.textContent = String(
     binding.cases.length,
   );
