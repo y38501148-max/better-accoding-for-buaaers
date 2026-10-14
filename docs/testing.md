@@ -24,3 +24,7 @@
 2026-10-14，0.1.11：58 项单元、116 项集成测试、lint、typecheck、格式及包检查通过。原生宿主新增验证无需运行用例即可通过 C/C++ 命令打开 Codeforces C++ 模板并切回 C，干净 VSIX 安装回归通过。工作台使用原生按钮、aria-pressed、键盘焦点轮廓显示本地语言入口。
 
 0.1.11 云端 CI：提交 `410aab4cbab4a09e5da895d58235ffbc3e98dec3` 的 Windows、macOS、Linux × VS Code 1.96.4 / Stable 六项均成功：https://github.com/y38501148-max/better-accoding-for-buaaers/actions/runs/38577218719 。在独立宿主中真实点击 C++ 按钮，确认右侧 main.cpp、工作台源码路径及 aria-pressed 状态同步更新。
+
+2026-10-14 22:09，Marketplace 0.1.10 已通过校验；独立用户/扩展目录从商店按版本安装成功，运行发布版原生宿主测试通过，包含激活、双栏、C/C++ 选择及取消、源码保存和切题保护。
+
+2026-10-14 22:13，Marketplace 0.1.11 公开上架。`ACCODING_INSTALL_SOURCE=muzermat.better-accoding-for-buaaers@0.1.11 npm run test:package` 通过；独立用户/扩展目录从商店下载 0.1.11，原生宿主验证常驻语言命令、Codeforces C++ 模板、切换回 C、评测选择、取消及草稿保存。商店安装的 extension.js / webview.js / webview.css 与已验证 VSIX 逐字节一致。本机日常 VS Code 确认安装 0.1.11。

@@ -27,11 +27,11 @@
 
 - 已公开 GitHub 源码、标签与 VSIX： https://github.com/y38501148-max/better-accoding-for-buaaers/releases/tag/v0.1.10 。安装包与本机干净安装验证使用同一文件，本机日常 VS Code 已升级至 0.1.10。
 - 六项跨平台 CI 全部通过，提交 `843dc87b1a3936a47837f650fb5a3785750b6f07`。
-- 22:00 左右已成功上传 Marketplace，管理页显示 0.1.10 Verifying，等待服务端校验。发布文件 SHA-256：`91a5158760484b5cc2358c5fd6f7d1c0a2b498c9bf61300abcd20aeac873a402`。
+- 22:00 左右成功上传 Marketplace，随后通过服务端校验；公开商店页显示 0.1.10，并已从商店在独立用户/扩展目录安装 0.1.10，原生宿主回归通过。发布文件 SHA-256：`91a5158760484b5cc2358c5fd6f7d1c0a2b498c9bf61300abcd20aeac873a402`。
 
 ## 0.1.11 发布记录（2026-10-14）
 
 - 已公开 GitHub 源码、标签与 VSIX：https://github.com/y38501148-max/better-accoding-for-buaaers/releases/tag/v0.1.11 。本机已安装 0.1.11，增加常驻 C / C++ 源码入口。
 - 六项跨平台 CI 与本机干净 VSIX 安装通过；源码提交 `410aab4cbab4a09e5da895d58235ffbc3e98dec3`。
-- 22:05 左右已成功上传 Marketplace，当前状态 Verifying。发布文件 SHA-256：`eb8c575c0829fe9d8a9afa0d25c8ad4048d91d7b0b992f71eac93b708b10d827`。
+- 22:05 左右成功上传 Marketplace，随后通过服务端校验；公开页面显示 0.1.11，独立用户/扩展目录从商店下载 0.1.11 并运行原生宿主回归通过。发布文件 SHA-256：`eb8c575c0829fe9d8a9afa0d25c8ad4048d91d7b0b992f71eac93b708b10d827`。
 - 网络恢复方法：使用现有 trojan 线路建立独立临时代理，仅在本机代理桥中为 google.com / gstatic.com / recaptcha.net 添加临时分流，保留正常 TLS 证书校验与验证码流程。上传成功后恢复原代理桥和原 vmess 选择，停止临时进程，并删除复制节点凭据的临时配置。
