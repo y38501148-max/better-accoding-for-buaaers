@@ -32,3 +32,5 @@
 2026-10-19，0.1.12：只读核对线上 `/api/users/me`，确认匿名请求返回 HTTP 200、application/json 和空响应体；带有效登录态时返回用户 JSON。修复前，新增空响应回归用例复现了“权限或接口变化”的 protocol 错误；修复后识别为 auth 并进入已有会话恢复流程。58 项单元、129 项集成测试、lint、typecheck、格式、构建及包白名单检查全部通过，VS Code 1.96.4 独立宿主回归通过。合成凭据测试覆盖启动与联网前恢复、登录后继续导入、新 Cookie 持久化及重启复用、未保存凭据时回到手动登录，以及权限拒绝、异常页面不发送密码。未使用真实密码测试线上重新登录。
 
 0.1.12 的独立用户/扩展目录 VSIX 安装与包内原生宿主回归通过，本机日常 VS Code 已从 0.1.11 升级至 0.1.12。安装包 SHA-256：`9b210a69b7125e9e4d8be9c75504f27ea1e2f92d5da84e0af670f6d8b23158ae`。
+
+0.1.12 云端 CI：源码提交 `3dc10b8b7830f182d6f6113407680c492dd79279` 的 Windows、macOS、Linux × VS Code 1.96.4 / Stable 六项全部成功：https://github.com/y38501148-max/better-accoding-for-buaaers/actions/runs/39188823159 。

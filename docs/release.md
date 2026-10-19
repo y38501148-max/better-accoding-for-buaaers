@@ -35,3 +35,11 @@
 - 六项跨平台 CI 与本机干净 VSIX 安装通过；源码提交 `410aab4cbab4a09e5da895d58235ffbc3e98dec3`。
 - 22:05 左右成功上传 Marketplace，随后通过服务端校验；公开页面显示 0.1.11，独立用户/扩展目录从商店下载 0.1.11 并运行原生宿主回归通过。发布文件 SHA-256：`eb8c575c0829fe9d8a9afa0d25c8ad4048d91d7b0b992f71eac93b708b10d827`。
 - 网络恢复方法：使用现有 trojan 线路建立独立临时代理，仅在本机代理桥中为 google.com / gstatic.com / recaptcha.net 添加临时分流，保留正常 TLS 证书校验与验证码流程。上传成功后恢复原代理桥和原 vmess 选择，停止临时进程，并删除复制节点凭据的临时配置。
+
+## 0.1.12 发布记录（2026-10-19）
+
+- GitHub 源码、标签和 Release 已公开：https://github.com/y38501148-max/better-accoding-for-buaaers/releases/tag/v0.1.12 。源码提交 `3dc10b8b7830f182d6f6113407680c492dd79279`，附带已验收 VSIX 和独立校验文件。
+- Windows、macOS、Linux × VS Code 1.96.4 / Stable 六项 CI 全部通过：https://github.com/y38501148-max/better-accoding-for-buaaers/actions/runs/39188823159 。
+- Marketplace 已接受 0.1.12 上传，当前仍在服务端校验（Verifying）；公开下载与商店干净安装验收待完成。
+- 上传文件与本机验收包一致，SHA-256：`9b210a69b7125e9e4d8be9c75504f27ea1e2f92d5da84e0af670f6d8b23158ae`。
+- 上传时临时将验证码相关域名转至独立线路，保留 TLS 校验和正常验证码流程；上传成功后已恢复原代理桥，停止临时进程并删除临时凭据副本。
