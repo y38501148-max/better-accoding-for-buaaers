@@ -66,6 +66,28 @@ it("does not accept login HTML or anonymous user as success", async () => {
     currentUser(new AccodingClient(undefined, async () => json({ id: 0 }))),
   ).rejects.toThrow();
 });
+it.each(["", " \n\t"])(
+  "recognizes an empty current-user response as an expired session (%j)",
+  async (body) => {
+    await expect(
+      currentUser(
+        new AccodingClient(undefined, async () => new Response(body)),
+      ),
+    ).rejects.toMatchObject({ kind: "auth" });
+  },
+);
+it.each([
+  ["/api/contests/7", ""],
+  ["/api/users/me", "<html>Maintenance</html>"],
+  ["/api/users/me", "{broken"],
+])(
+  "keeps unexpected API responses as protocol errors (%s, %j)",
+  async (path, body) => {
+    await expect(
+      new AccodingClient(undefined, async () => new Response(body)).json(path),
+    ).rejects.toMatchObject({ kind: "protocol" });
+  },
+);
 it("uses fresh sorted zero based order and exact server language", async () => {
   let submitted: unknown;
   const c = new AccodingClient(undefined, async (_u, init) => {

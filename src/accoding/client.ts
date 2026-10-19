@@ -264,8 +264,12 @@ export class AccodingClient {
     options: Parameters<AccodingClient["request"]>[1] = {},
   ): Promise<unknown> {
     const reply = await this.request(path, options);
+    const pathname = new URL(reply.url).pathname;
     if (
-      new URL(reply.url).pathname === "/user/login" ||
+      pathname === "/user/login" ||
+      // Accoding returns HTTP 200 with an empty JSON body for anonymous users.
+      // Only this identity endpoint treats an empty body as an expired session.
+      (pathname === "/api/users/me" && !reply.text.trim()) ||
       /<form[^>]*>[\s\S]*name=["']password/.test(reply.text)
     )
       throw new ApiError("auth", "请先登录 Accoding。");
