@@ -34,3 +34,5 @@
 0.1.12 的独立用户/扩展目录 VSIX 安装与包内原生宿主回归通过，本机日常 VS Code 已从 0.1.11 升级至 0.1.12。安装包 SHA-256：`9b210a69b7125e9e4d8be9c75504f27ea1e2f92d5da84e0af670f6d8b23158ae`。
 
 0.1.12 云端 CI：源码提交 `3dc10b8b7830f182d6f6113407680c492dd79279` 的 Windows、macOS、Linux × VS Code 1.96.4 / Stable 六项全部成功：https://github.com/y38501148-max/better-accoding-for-buaaers/actions/runs/39188823159 。
+
+2026-10-19 10:25，Marketplace 0.1.12 公开上架验收完成。`ACCODING_INSTALL_SOURCE=muzermat.better-accoding-for-buaaers@0.1.12 npm run test:package` 在独立用户/扩展目录从商店安装 0.1.12 并运行原生宿主回归通过，覆盖激活、双栏、C/C++ 选择及取消、草稿保存、原生用例运行和切题保护。商店安装的 extension.js、webview.js、webview.css 与已验收 VSIX 逐字节一致。

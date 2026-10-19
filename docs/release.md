@@ -40,6 +40,6 @@
 
 - GitHub 源码、标签和 Release 已公开：https://github.com/y38501148-max/better-accoding-for-buaaers/releases/tag/v0.1.12 。源码提交 `3dc10b8b7830f182d6f6113407680c492dd79279`，附带已验收 VSIX 和独立校验文件。
 - Windows、macOS、Linux × VS Code 1.96.4 / Stable 六项 CI 全部通过：https://github.com/y38501148-max/better-accoding-for-buaaers/actions/runs/39188823159 。
-- Marketplace 已接受 0.1.12 上传，当前仍在服务端校验（Verifying）；公开下载与商店干净安装验收待完成。
+- Marketplace 已通过校验并公开上架 0.1.12：https://marketplace.visualstudio.com/items?itemName=muzermat.better-accoding-for-buaaers 。独立用户/扩展目录从商店按版本全新安装成功，发布版原生宿主回归通过；商店安装的 extension.js、webview.js 和 webview.css 与已验收 VSIX 逐字节一致。
 - 上传文件与本机验收包一致，SHA-256：`9b210a69b7125e9e4d8be9c75504f27ea1e2f92d5da84e0af670f6d8b23158ae`。
 - 上传时临时将验证码相关域名转至独立线路，保留 TLS 校验和正常验证码流程；上传成功后已恢复原代理桥，停止临时进程并删除临时凭据副本。
