@@ -36,3 +36,5 @@
 0.1.12 云端 CI：源码提交 `3dc10b8b7830f182d6f6113407680c492dd79279` 的 Windows、macOS、Linux × VS Code 1.96.4 / Stable 六项全部成功：https://github.com/y38501148-max/better-accoding-for-buaaers/actions/runs/39188823159 。
 
 2026-10-19 10:25，Marketplace 0.1.12 公开上架验收完成。`ACCODING_INSTALL_SOURCE=muzermat.better-accoding-for-buaaers@0.1.12 npm run test:package` 在独立用户/扩展目录从商店安装 0.1.12 并运行原生宿主回归通过，覆盖激活、双栏、C/C++ 选择及取消、草稿保存、原生用例运行和切题保护。商店安装的 extension.js、webview.js、webview.css 与已验收 VSIX 逐字节一致。
+
+2026-10-26，0.1.13：C++ 模板与本机 VS Code 2026-10-25 更新的 Codeforces snippet 展开结果逐字一致（移除光标占位符，保留文件末尾换行）。Node 22 下 lint、typecheck、格式检查、58 项单元与 129 项集成测试通过；真实编译验证 2×3 与 3×1 矩阵相乘、结果维度和值、lowbit 及多组输入循环。VS Code 1.96.4 原生宿主与独立配置 VSIX 安装回归通过，日常 VS Code 已安装 0.1.13。

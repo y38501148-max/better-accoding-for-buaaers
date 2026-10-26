@@ -181,7 +181,7 @@ it(
 );
 
 it(
-  "compiles both generated templates and runs the expanded Codeforces solve loop",
+  "compiles both templates and runs the Codeforces loop with rectangular matrix multiplication",
   { timeout: 40000 },
   async () => {
     const { cTemplate, cppTemplate } =
@@ -196,7 +196,15 @@ it(
       cpp,
       cppTemplate.replace(
         "void solve() {",
-        "void solve() {\n    LL a, b; cin >> a >> b; cout << a + b << endl;",
+        `void solve() {
+    Martix left(2, 3), right(3, 1);
+    left.a = {{1, 2, 3}, {4, 5, 6}};
+    right.a = {{7}, {8}, {9}};
+    const auto product = left * right;
+    assert(product.n == 2 && product.m == 1);
+    assert(product.a[0][0] == 50 && product.a[1][0] == 122);
+    assert((lowbit(12)) == 4);
+    LL a, b; cin >> a >> b; cout << a + b << endl;`,
       ),
     );
     const cppResult = await judge(
