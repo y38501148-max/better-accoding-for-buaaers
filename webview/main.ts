@@ -1,6 +1,7 @@
 import { icon, type IconName } from "./icons";
 import { problemLabel } from "../src/problems/order";
 import renderMathInElement from "katex/contrib/auto-render";
+import { normalizeMathSource } from "./math";
 import type { Binding, TestCase } from "../src/model";
 import type { JudgeResult } from "../src/judge/judge";
 import type { Submission } from "../src/accoding/adapters";
@@ -517,7 +518,8 @@ function render() {
       );
     }
     content.append(article);
-    renderMathInElement(article, {
+    const mathOptions = {
+      preProcess: normalizeMathSource,
       delimiters: [
         { left: "$$", right: "$$", display: true },
         { left: "$", right: "$", display: false },
@@ -526,7 +528,8 @@ function render() {
       ],
       throwOnError: false,
       trust: false,
-    });
+    };
+    renderMathInElement(article, mathOptions);
   } else if (tab === "tests") renderTests();
   else {
     content.append(

@@ -2,7 +2,39 @@ import { expect, it } from "vitest";
 import * as cheerio from "cheerio";
 import katex from "katex";
 import { renderStatement } from "../../src/problems/statement";
+import { normalizeMathSource } from "../../webview/math";
 const base = "https://accoding.buaa.edu.cn/";
+const percentile = String.raw`x_p=\\begin{cases}x_{(\lfloor np\rfloor+1)}, &np\\not\\in \\mathbb{N} \\\\ \\dfrac{x_{(np)}+x_{(np+1)}}{2}, & np\\in\\mathbb{N}\\end{cases}`;
+
+it.each(["markdown", "html"] as const)(
+  "renders the mixed-escape percentile cases formula from %s",
+  (format) => {
+    const html = renderStatement(format, `$$${percentile}$$`, base);
+    const text = cheerio.load(html).root().text().trim();
+    const source = text.slice(2, -2);
+    expect(() => katex.renderToString(source)).toThrow();
+    const math = cheerio.load(
+      katex.renderToString(normalizeMathSource(source), { trust: false }),
+    );
+    expect(math("mtable > mtr")).toHaveLength(2);
+    expect(math("mfrac")).toHaveLength(1);
+    expect(math(".katex-error")).toHaveLength(0);
+    expect(math("annotation").text()).toContain(
+      String.raw`np\not\in \mathbb{N} \\ \dfrac`,
+    );
+  },
+);
+
+it.each([
+  String.raw`\begin{cases}a & x<0 \\ b & x\geq 0\end{cases}`,
+  String.raw`\begin{matrix}a&b\\c&d\end{matrix}`,
+  String.raw`x\%m + \{a,b\}`,
+  String.raw`\text{\\begin{cases}literal\\end{cases}}`,
+  String.raw`\\begin{cases}\unknowncommand\\end{cases}`,
+])("preserves valid TeX and unrepairable formulas: %s", (source) => {
+  expect(normalizeMathSource(source)).toBe(source);
+});
+
 it("preserves the escaped remainder operator through Markdown and renders its right operand", () => {
   const html = renderStatement(
     "markdown",

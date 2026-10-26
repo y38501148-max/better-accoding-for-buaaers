@@ -39,3 +39,10 @@
 - Windows、macOS、Linux × VS Code 1.96.4 / Stable 六项 CI 全部通过：https://github.com/y38501148-max/better-accoding-for-buaaers/actions/runs/39188823159 。
 - Marketplace 已通过校验并公开上架 0.1.12：https://marketplace.visualstudio.com/items?itemName=muzermat.better-accoding-for-buaaers 。独立用户/扩展目录从商店按版本全新安装成功，发布版原生宿主回归通过；商店安装的 extension.js、webview.js 和 webview.css 与已验收 VSIX 逐字节一致。
 - 上传文件与本机验收包一致，SHA-256：`9b210a69b7125e9e4d8be9c75504f27ea1e2f92d5da84e0af670f6d8b23158ae`。
+
+## 0.1.13 发布记录（2026-10-26）
+
+- 最新 Codeforces C++ 模板已同步，本机安装、独立 VSIX 安装验证通过。
+- GitHub 源码提交 `133fc10bf52138e0c312c5fdd75aa1f16a2718ff`，Release：https://github.com/y38501148-max/better-accoding-for-buaaers/releases/tag/v0.1.13 。
+- 六组跨平台 CI 全部通过：https://github.com/y38501148-max/better-accoding-for-buaaers/actions/runs/40253371578 。Marketplace 已完成校验并公开上架。
+- VSIX SHA-256：`a1fcaab1aec15aa3cd6875e0768c01ac88901494c554f4ad0415e7fcfa49b477`；GitHub 下载包与已验收包逐字节一致。
