@@ -54,3 +54,11 @@
 - 六组跨平台 CI 全部通过：https://github.com/y38501148-max/better-accoding-for-buaaers/actions/runs/40254024981 。
 - Marketplace 09:31 完成校验并公开上架 0.1.14；独立配置从商店按版本全新安装，原生宿主回归通过。商店安装的 extension.js、webview.js 和 webview.css 与已验收 VSIX 逐字节一致。
 - VSIX SHA-256：`2d44fd4f000882a0a6a25841f3b1eb7aa6bb4853092ebb80aabe7df475585b6f`。
+
+## 0.1.15 发布记录（2026-10-27）
+
+- 修复 C6 D（Hera）和 I（QZKago Requiem）等题面统一双重转义命令的显示，保留正常 TeX 和原有混合转义修复。本机日常 VS Code 已安装 0.1.15。
+- GitHub 源码提交 `ec728a9b278d43e25f219334f5b42558dedf3646`，Release：https://github.com/y38501148-max/better-accoding-for-buaaers/releases/tag/v0.1.15 。公开下载的 VSIX 与本地验收包逐字节一致。
+- 六组跨平台 CI 全部通过：https://github.com/y38501148-max/better-accoding-for-buaaers/actions/runs/40510396796 。
+- VSIX SHA-256：`8398eb4dd0d7cf48686a15870e75f75a691f143046cb035840b3a43d7dc5af3f`。
+- Marketplace 21:21 完成校验，公开页面显示 0.1.15；独立配置从商店按版本全新安装并运行原生宿主回归通过，商店安装的 extension.js、webview.js 和 webview.css 与已验收 VSIX 逐字节一致。
