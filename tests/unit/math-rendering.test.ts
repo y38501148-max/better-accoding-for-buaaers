@@ -107,3 +107,77 @@ it("does not decode underscores in code or consume an even backslash run", () =>
   expect($("pre code").text()).toBe("x\\_i\n");
   expect($("p").last().text()).toContain(String.raw`a\\_b`);
 });
+
+it.each([
+  [String.raw`k\\ge 2`, String.raw`k\ge 2`, "≥"],
+  [String.raw`1 \\le n \\le 10^5`, String.raw`1 \le n \le 10^5`, "≤"],
+  [String.raw`\\{0, 1\\}`, String.raw`\{0, 1\}`, "{0,1}"],
+  [
+    String.raw`a \\oplus b \\oplus \\cdots \\oplus c`,
+    String.raw`a \oplus b \oplus \cdots \oplus c`,
+    "⊕",
+  ],
+  [
+    String.raw`\\sum_{i=0}^{63} x_i 2^i`,
+    String.raw`\sum_{i=0}^{63} x_i 2^i`,
+    "∑",
+  ],
+  [
+    String.raw`S = \\left(\\sum_{j=1}^T X_j'\\right) \\bmod 2^{64}`,
+    String.raw`S = \left(\sum_{j=1}^T X_j'\right) \bmod 2^{64}`,
+    "mod",
+  ],
+])(
+  "repairs uniformly doubled commands even when KaTeX accepts them: %s",
+  (source, expected, symbol) => {
+    // A successful parse alone does not prove these commands rendered correctly.
+    const normalized = normalizeMathSource(source);
+    expect(normalized).toBe(expected);
+    const math = cheerio.load(
+      katex.renderToString(normalized, { trust: false }),
+    );
+    expect(math(".katex-html").text()).toContain(symbol);
+    expect(math("mspace[linebreak]")).toHaveLength(0);
+  },
+);
+
+it("decodes doubled aligned environments and row breaks together", () => {
+  const source = String.raw`\\begin{aligned}X_1 &= 1,\\\\ X_2 &= 2,\\\\ X_3 &= 3.\\end{aligned}`;
+  const normalized = normalizeMathSource(source);
+  expect(normalized).toBe(
+    String.raw`\begin{aligned}X_1 &= 1,\\ X_2 &= 2,\\ X_3 &= 3.\end{aligned}`,
+  );
+  const math = cheerio.load(
+    katex.renderToString(normalized, { displayMode: true }),
+  );
+  expect(math("mtable > mtr")).toHaveLength(3);
+});
+
+it.each([
+  String.raw`a\\b`,
+  String.raw`a\\[2pt]b`,
+  String.raw`\begin{matrix}x&y\\alpha&beta\end{matrix}`,
+  String.raw`\begin{aligned}a&=1\\\text{next}&=2\end{aligned}`,
+  String.raw`\text{literal \\ braces} + \{x\}`,
+  String.raw`x\\unknowncommand y`,
+])(
+  "preserves ordinary TeX row breaks, text and unknown commands: %s",
+  (source) => {
+    expect(normalizeMathSource(source)).toBe(source);
+  },
+);
+
+it.each(["markdown", "html"] as const)(
+  "preserves doubled commands through the %s statement pipeline",
+  (format) => {
+    const source = String.raw`$X = \\sum\_{i=0}^{63} x\_i 2^i$`;
+    const html = renderStatement(format, source, base);
+    const formula = cheerio.load(html).root().text().trim().slice(1, -1);
+    // Only Markdown authors escape underscores for the Markdown stage.
+    const expected =
+      format === "markdown"
+        ? String.raw`X = \sum_{i=0}^{63} x_i 2^i`
+        : String.raw`X = \sum\_{i=0}^{63} x\_i 2^i`;
+    expect(normalizeMathSource(formula)).toBe(expected);
+  },
+);
